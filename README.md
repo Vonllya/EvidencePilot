@@ -1,25 +1,18 @@
 # EvidencePilot
 
-EvidencePilot 是一个开源的“可验证深度研究 Agent”Demo。输入技术问题后，它会规划子问题、并发搜索和抓取网页、提取带来源 ID 的证据、评估证据缺口、进行至多若干轮补充研究，最终生成带可点击引用的 Markdown 报告并逐条核验引用。
+EvidencePilot 是一个可验证的深度研究 Agent。它使用 LangGraph 编排研究计划、搜索、网页/PDF 抓取、证据提取、充分性评估、报告写作和 Citation Audit，并将每条事实与来源 ID 关联。
 
-> 截图占位：启动 Streamlit 后，可在此处替换为 `docs/screenshot.png`。当前界面包含运行进度、研究报告、过程与来源、引用核验三个视图。
+核心特性：
 
-## 架构
+- 真实 DeepSeek/OpenAI-compatible LLM、Tavily Search 与 HTTP 抓取
+- 显式 Mock Provider，支持零成本离线开发和回归测试
+- Markdown AST 级 Atomic Claim 解析，引用紧邻事实
+- 批量 Citation Audit：区分语义支持与证据质量
+- unsupported claim 的结构化局部修订
+- SQLite 持久化、任务恢复、节点指标和脱敏运行摘要
+- SSRF 防护、响应大小限制、文本型 PDF 解析和有限重试
 
-```mermaid
-flowchart LR
-    UI[Streamlit UI] --> G[LangGraph]
-    G --> P[LLMProvider]
-    G --> S[SearchProvider]
-    G --> F[WebFetcher]
-    G --> DB[(SQLite)]
-    P --> O[OpenAI-compatible API]
-    S --> T[Tavily]
-    S --> M[Bundled Mock data]
-    F --> W[Public HTTP/S pages]
-```
-
-工作流由以下 LangGraph 节点构成：
+## 工作流
 
 ```mermaid
 flowchart TD
@@ -27,25 +20,27 @@ flowchart TD
     B --> C[fetch_sources]
     C --> D[extract_evidence]
     D --> E[evaluate_evidence]
-    E -->|不足且未达轮数| F[refine_queries]
+    E -->|证据不足且未达上限| F[refine_queries]
     F --> B
-    E -->|充分或达到上限| G[write_report]
+    E -->|证据充分或达到上限| G[write_report]
     G --> H[verify_citations]
 ```
 
-默认最多两轮，UI 可选择 1–3 轮、来源类型偏好和最多保留/抓取的来源数量。来源偏好会写入研究计划，作为搜索方向提示；查询、URL、相似标题和证据均去重；页面抓取限制协议、目标 IP、大小、超时和正文长度，并支持文本型 PDF 的 `pypdf` 解析。单个搜索或抓取失败会记录并尽可能继续。超时和临时连接错误会在第一轮抓取全部结束后追加一次请求；403、405、SSRF 和内容解析错误不会重复请求。SQLite 使用显式存储层，避免 LangGraph checkpointer 版本耦合，保存任务状态、来源、报告、节点运行和错误。
+每个来源分别记录为 `search_result`、`fetched` 或 `snippet_fallback`。抓取失败不会被伪装成成功正文；超时和临时连接错误会在首轮抓取完成后追加一次请求，403、405、SSRF 和解析错误不会重复请求。
 
-## 本地安装
+## 快速开始
 
-需要 Python 3.11+。推荐使用 [uv](https://docs.astral.sh/uv/)：
+需要 Python 3.11+，推荐使用 [uv](https://docs.astral.sh/uv/)：
 
 ```bash
-uv sync
+uv sync --all-groups
 cp .env.example .env
 uv run streamlit run frontend/streamlit_app.py
 ```
 
-安装后也可以使用正式 CLI：
+打开 `http://127.0.0.1:8501`。Streamlit 界面支持最大研究轮数、来源类型偏好和最多抓取来源数设置。
+
+也可以直接使用 CLI：
 
 ```bash
 uv run evidencepilot providers
@@ -55,155 +50,116 @@ uv run evidencepilot resume <task-id>
 uv run evidencepilot eval
 ```
 
-也可使用标准 pip：
+## Provider 配置
 
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -e .
-streamlit run frontend/streamlit_app.py
-```
-
-## 环境变量
-
-| 变量 | 必需 | 说明 |
-|---|---:|---|
-| `LLM_PROVIDER` | 是 | `openai`、`deepseek` 或显式离线 `mock` |
-| `SEARCH_PROVIDER` | 是 | `tavily` 或显式离线 `mock` |
-| `OPENAI_API_KEY` | 真实 LLM 必需 | OpenAI 或兼容 API 密钥；缺失时直接报配置错误 |
-| `OPENAI_BASE_URL` | 否 | OpenAI-compatible base URL；DeepSeek 使用 `https://api.deepseek.com` |
-| `OPENAI_MODEL` | 否 | DeepSeek V4 Flash 使用 `deepseek-v4-flash` |
-| `LLM_THINKING_MODE` | 否 | `disabled` 或 `enabled`；默认 `disabled` |
-| `LLM_REASONING_EFFORT` | 否 | 仅思考模式开启时传递，默认 `low` |
-| `LLM_MAX_TOKENS_STRUCTURED` | 否 | 计划、提取、评估等普通结构化节点的上限，默认 `2048` |
-| `LLM_MAX_TOKENS_CITATION_AUDIT` | 否 | 批量 Citation Audit 的独立输出上限，默认 `4096` |
-| `LLM_MAX_TOKENS_REPORT` | 否 | 报告节点的输出上限，默认 `4096` |
-| `LLM_TIMEOUT_SECONDS` | 否 | 单次模型请求超时，默认 `120` |
-| `LLM_MAX_RETRIES` | 否 | 429、500、503 与网络超时的最大重试数，默认 `2` |
-| `TAVILY_API_KEY` | Tavily 必需 | 缺失时直接报配置错误，不会静默切换 Mock |
-| `EVIDENCEPILOT_DB` | 否 | 默认 `data/evidencepilot.db` |
-
-密钥只从环境读取，不应提交 `.env`。日志与持久化层均不保存密钥。
-
-### DeepSeek V4 Flash
+Provider 必须显式选择；缺少真实密钥时不会静默降级到 Mock。
 
 ```env
+LLM_PROVIDER=deepseek
+SEARCH_PROVIDER=tavily
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.deepseek.com
 OPENAI_MODEL=deepseek-v4-flash
+TAVILY_API_KEY=
 LLM_THINKING_MODE=disabled
-LLM_REASONING_EFFORT=low
 LLM_MAX_TOKENS_STRUCTURED=2048
+LLM_MAX_TOKENS_CITATION_AUDIT=4096
 LLM_MAX_TOKENS_REPORT=4096
 LLM_TIMEOUT_SECONDS=120
 LLM_MAX_RETRIES=2
 ```
 
-DeepSeek V4 默认开启思考；EvidencePilot 显式关闭它，因为计划、证据提取、充分性评估和引用核验依赖完整、可校验的 JSON，关闭思考可避免 reasoning 占满输出预算。开启时才发送 `reasoning_effort`，且不会发送或依赖 temperature、top_p。业务只使用 `message.content`；完整 `reasoning_content` 不进入日志、SQLite、Streamlit 或测试快照，仅记录 API 提供的 reasoning token 数。
+常用配置：
 
-节点预算由配置层集中管理：计划和证据提取 2048、充分性评估 1536、补充查询 1024、批量引用核验 4096、报告 4096。批量 Citation Audit 使用独立的 `LLM_MAX_TOKENS_CITATION_AUDIT`，避免多个 claim 共用普通结构化节点预算。
+| 变量 | 默认值 | 作用 |
+|---|---:|---|
+| `LLM_PROVIDER` | 无 | `openai`、`deepseek` 或 `mock` |
+| `SEARCH_PROVIDER` | 无 | `tavily` 或 `mock` |
+| `OPENAI_BASE_URL` | OpenAI endpoint | OpenAI-compatible API 地址 |
+| `OPENAI_MODEL` | `gpt-4o-mini` | 模型名称 |
+| `LLM_MAX_TOKENS_STRUCTURED` | `2048` | 普通结构化节点预算 |
+| `LLM_MAX_TOKENS_CITATION_AUDIT` | `4096` | 批量引用核验预算 |
+| `LLM_MAX_TOKENS_REPORT` | `4096` | 报告节点预算 |
+| `LLM_TIMEOUT_SECONDS` | `120` | 单次模型请求超时 |
+| `LLM_MAX_RETRIES` | `2` | 模型临时错误的最大重试数 |
+| `EVIDENCEPILOT_DB` | `data/evidencepilot.db` | SQLite 路径 |
 
-## Mock 与全真实模式
+密钥只从环境读取。`.env`、数据库、缓存和 `artifacts/` 均不应提交到 Git。
 
-Provider 必须显式选择。缺少真实 Provider 的密钥会立即失败，不会静默降级。
-
-完全离线模式使用固定资料且不会产生 API 成本：
+### 离线模式
 
 ```env
 LLM_PROVIDER=mock
 SEARCH_PROVIDER=mock
 ```
 
-```bash
-uv run pytest
-```
+离线模式使用仓库内固定资料，不访问模型、搜索或网页，不产生 API 成本。
 
-真实模式请在 `.env` 填入 `OPENAI_API_KEY`（以及兼容服务所需的 `OPENAI_BASE_URL`、`OPENAI_MODEL`）。再填入 `TAVILY_API_KEY` 即启用真实网页搜索；不填则保留 Mock 搜索、使用真实模型。
+## 评测与测试
 
-- Mock：必须显式配置；Fake LLM + bundled Mock search，免费、确定性。
-- 全真实：真实 DeepSeek + Tavily + HTTP 抓取；需要两个有效密钥，产生外部 API 成本。
-
-## 可恢复执行
-
-初始状态和每个已完成节点都会写入 SQLite。失败或进程中断后可从最后失败节点继续：
-
-```bash
-uv run python scripts/resume_task.py <task-id>
-```
-
-已完成任务再次恢复会直接返回现有状态，不会重复调用 Provider。
-
-## 固定质量评测
-
-默认评测只使用 `evals/citation_cases.jsonl`，并按照
-`evals/thresholds.json` 执行回归门槛；它不访问模型或搜索 API：
+固定语料评测默认完全离线，并按照 `evals/thresholds.json` 执行回归门槛：
 
 ```bash
 uv run python scripts/run_evals.py
 ```
 
-显式使用真实模型评估固定语料的 semantic verdict：
+显式启用真实模型语义核验：
 
 ```bash
 uv run python scripts/run_evals.py --live-model
 ```
 
-受限验收命令（最多一轮、3 查询、每查询 3 结果、5 来源，产物写入已忽略的 `artifacts/`）：
+运行测试：
 
 ```bash
-set -a
-source .env
-set +a
-uv run python scripts/run_acceptance.py
-```
-
-## 测试
-
-```bash
+uv run ruff check .
 uv run pytest
+uv build
 ```
 
-默认测试不调用真实模型、搜索或网页，覆盖 Provider 显式配置、搜索/查询去重、逐跳 SSRF 校验、Markdown AST、引用核验、局部 Patch、失败恢复以及 Mock 端到端工作流。
-
-显式的小规模付费连通测试默认 skip；确认成本后运行：
+live 测试默认跳过；确认外部 API 成本后再运行：
 
 ```bash
 RUN_LIVE_TESTS=1 uv run pytest -m live
 ```
 
-### 常见 API 错误
-
-- 401：检查 `OPENAI_API_KEY` 是否有效。
-- 402：账户余额不足，需要充值或更换可用账户。
-- 422：模型名、thinking 或其他请求参数与服务不兼容。
-- 429：触发限流；系统会指数退避并只进行有限重试。
-- 500/503：服务端故障或暂不可用；系统有限重试后给出明确失败。
-- `finish_reason=length`：输出已截断，不会当作成功 JSON/报告。错误会指出节点及当前预算；提高 `LLM_MAX_TOKENS_STRUCTURED` 或 `LLM_MAX_TOKENS_REPORT`，同时确认思考模式未耗尽预算。
-- 空 `content` 且存在 reasoning：通常表示思考过程用完 `max_tokens`；关闭思考或提高对应节点预算。
-
-## Docker
+真实验收脚本：
 
 ```bash
-docker build -t evidencepilot .
-docker run --rm -p 8501:8501 --env-file .env -v evidencepilot-data:/app/data evidencepilot
+uv run python scripts/run_acceptance.py
 ```
 
-本地运行不依赖 Docker。
+## 持久化与恢复
 
-## 当前限制
+任务状态、来源、报告、节点运行、错误和指标写入 SQLite。失败或中断后可恢复：
 
-- Mock 资料是用于演示管线的合成固定资料，不代表开放网络研究结果。
-- 引用核验判断“来源文本是否支持结论”，不能保证来源本身真实或权威。
-- 没有实现 robots.txt 调度、付费墙/JavaScript 渲染和 PDF 专用解析。
-- SQLite 适合单实例 Demo；多进程生产部署需要更强的事务与任务队列方案。
-- 引用核验基于抓取到的文本与模型判断，不等同于事实真伪认证。
+```bash
+uv run python scripts/resume_task.py <task-id>
+```
 
-## Roadmap
+已完成任务恢复时不会重复调用 Provider。
 
-- 来源可信度、时效性和跨来源矛盾检测
-- PDF/论文解析与段落级引用定位
-- 可选的 robots.txt/域名速率限制
-- 人工调整研究计划和引用修订流程
-- 基于真实基准集的引用准确率评测
+## 安全边界
 
-项目采用 [MIT License](LICENSE)。
+- 仅允许 HTTP/HTTPS 和标准端口
+- 阻止 URL 凭据、localhost、私网、回环、链路本地和非全局 IP
+- 每个重定向重新执行校验，并拒绝 HTTPS 降级
+- 禁用环境代理继承
+- 限制响应类型、解码大小、超时和并发
+- PDF 只提取文本，不执行嵌入动作或文件
+- 日志和持久化层不保存 API Key、完整 reasoning 或完整提示词
+
+DNS 校验与实际连接之间仍存在系统级竞态。生产部署应在网络层阻断私网和云元数据地址，并结合出口控制和域名限流。
+
+## 项目结构
+
+```text
+src/evidencepilot/   核心 Provider、工作流、抓取器、存储和 CLI
+frontend/             Streamlit 演示界面
+scripts/              评测、验收和恢复脚本
+evals/                固定质量评测语料与阈值
+tests/                离线单元测试和 opt-in live 测试
+docs/                 架构与开发文档
+```
+
+贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题请见 [SECURITY.md](SECURITY.md)。项目采用 [MIT License](LICENSE)。
