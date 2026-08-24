@@ -14,10 +14,22 @@ from bs4 import BeautifulSoup
 
 def is_safe_url(url: str, resolve_dns: bool = True) -> bool:
     parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
         return False
     hostname = parsed.hostname.casefold().rstrip(".")
-    if hostname in {"localhost", "metadata.google.internal"} or hostname.endswith(".localhost"):
+    blocked_suffixes = (".localhost", ".local", ".internal", ".home.arpa")
+    if hostname in {"localhost", "metadata.google.internal"} or hostname.endswith(blocked_suffixes):
+        return False
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return False
+    if port not in {80, 443}:
         return False
     try:
         addresses = [ipaddress.ip_address(hostname)]
@@ -25,10 +37,13 @@ def is_safe_url(url: str, resolve_dns: bool = True) -> bool:
         if not resolve_dns:
             return True
         try:
-            addresses = [ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(hostname, parsed.port or 443)]
-        except (socket.gaierror, ValueError):
+            addresses = [
+                ipaddress.ip_address(item[4][0])
+                for item in socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+            ]
+        except (socket.gaierror, UnicodeError, ValueError):
             return False
-    return all(ip.is_global for ip in addresses)
+    return bool(addresses) and all(ip.is_global for ip in addresses)
 
 
 def extract_main_text(html: str, max_chars: int = 20_000) -> str:
@@ -73,10 +88,11 @@ class WebFetcher:
         return page
 
     async def _fetch_page(self, url: str) -> FetchedPage:
-        headers = {"User-Agent": "EvidencePilot/0.1 (+https://github.com/example/evidencepilot)"}
+        headers = {"User-Agent": "EvidencePilot/0.1 (+https://github.com/Vonllya/EvidencePilot)"}
         current_url = url
         async with httpx.AsyncClient(
-            timeout=self.timeout, follow_redirects=False, headers=headers, transport=self.transport
+            timeout=httpx.Timeout(self.timeout), follow_redirects=False, headers=headers,
+            transport=self.transport, trust_env=False,
         ) as client:
             for redirect_count in range(self.max_redirects + 1):
                 if not is_safe_url(current_url):
@@ -91,14 +107,23 @@ class WebFetcher:
                         next_url = urljoin(str(response.url), location)
                         if not is_safe_url(next_url):
                             raise ValueError("redirect target is unsafe or unresolvable")
+                        if urlparse(current_url).scheme == "https" and urlparse(next_url).scheme != "https":
+                            raise ValueError("HTTPS redirect downgrade is not allowed")
                         current_url = next_url
                         continue
                     response.raise_for_status()
-                    content_type = response.headers.get("content-type", "text/html").split(";", 1)[0]
+                    content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().casefold()
                     if content_type not in {"text/html", "text/plain", "application/xhtml+xml"}:
-                        raise ValueError(f"unsupported content type: {content_type}")
-                    if int(response.headers.get("content-length", "0")) > self.max_bytes:
-                        raise ValueError("response exceeds size limit")
+                        raise ValueError(f"unsupported content type: {content_type or 'missing'}")
+                    declared_length = response.headers.get("content-length")
+                    if declared_length is not None:
+                        try:
+                            if int(declared_length) < 0 or int(declared_length) > self.max_bytes:
+                                raise ValueError("response exceeds size limit")
+                        except ValueError as exc:
+                            if str(exc) == "response exceeds size limit":
+                                raise
+                            raise ValueError("invalid Content-Length header") from exc
                     chunks, size = [], 0
                     async for chunk in response.aiter_bytes():
                         size += len(chunk)

@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible problem without including secrets or paid API output.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste API keys, `.env` contents, complete reasoning, or sensitive artifacts.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe sequence that reproduces the issue.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: EvidencePilot version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Provider mode
+      options:
+        - Offline mock
+        - Real LLM only
+        - Real LLM and Tavily
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Remove credentials, private URLs, proprietary content, and reasoning before pasting.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: I reviewed this report and removed secrets and sensitive content.
+          required: true
+

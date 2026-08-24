@@ -1,0 +1,7 @@
+{
+  "atomic_claim_exact_match": 1.0,
+  "source_set_exact_match": 1.0,
+  "evidence_quality_accuracy": 1.0,
+  "citation_adjacency_accuracy": 1.0,
+  "citation_integrity_accuracy": 1.0
+}

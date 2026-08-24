@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,6 +17,7 @@ from evidencepilot.workflow import ResearchWorkflow
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS = ROOT / "evals" / "citation_cases.jsonl"
+DEFAULT_THRESHOLDS = ROOT / "evals" / "thresholds.json"
 
 
 def load_cases(path: Path) -> list[dict]:
@@ -36,6 +38,7 @@ async def evaluate(path: Path, live_model: bool) -> dict:
         llm = FakeLLMProvider()
     workflow = ResearchWorkflow(llm, MockSearchProvider(), WebFetcher(), settings=settings)
     claim_total = structure_correct = source_set_correct = quality_correct = 0
+    adjacency_correct = integrity_correct = 0
     verdict_total = verdict_correct = 0
     case_results = []
     for case in cases:
@@ -57,6 +60,17 @@ async def evaluate(path: Path, live_model: bool) -> dict:
             == item["evidence_quality"]
             for index, item in enumerate(expected)
         )
+        adjacency_correct += sum(
+            index < len(claims)
+            and re.search(r"(?:\[S\d+\])+\s*(?:[.!?。！？])?$", claims[index].text) is not None
+            for index in range(len(expected))
+        )
+        integrity_correct += sum(
+            index < len(claims)
+            and all(source_id in source_map for source_id in claims[index].source_ids)
+            == item.get("citations_exist", True)
+            for index, item in enumerate(expected)
+        )
         result = {"case_id": case["case_id"], "claims": len(claims)}
         if live_model:
             audit = await workflow._batch_citation_audit(claims, source_map)
@@ -72,6 +86,8 @@ async def evaluate(path: Path, live_model: bool) -> dict:
         "atomic_claim_exact_match": structure_correct / claim_total if claim_total else 0,
         "source_set_exact_match": source_set_correct / claim_total if claim_total else 0,
         "evidence_quality_accuracy": quality_correct / claim_total if claim_total else 0,
+        "citation_adjacency_accuracy": adjacency_correct / claim_total if claim_total else 0,
+        "citation_integrity_accuracy": integrity_correct / claim_total if claim_total else 0,
         "semantic_verdict_accuracy": (
             verdict_correct / verdict_total if live_model and verdict_total else None
         ),
@@ -84,15 +100,21 @@ async def evaluate(path: Path, live_model: bool) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
+    parser.add_argument("--thresholds", type=Path, default=DEFAULT_THRESHOLDS)
     parser.add_argument("--live-model", action="store_true")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env", override=False)
     result = asyncio.run(evaluate(args.corpus, args.live_model))
     print(json.dumps(result, ensure_ascii=False, indent=2))
     deterministic = result["metrics"]
-    if any(deterministic[name] != 1 for name in (
-        "atomic_claim_exact_match", "source_set_exact_match", "evidence_quality_accuracy"
-    )):
+    thresholds = json.loads(args.thresholds.read_text(encoding="utf-8"))
+    failures = {
+        name: {"actual": deterministic.get(name), "minimum": minimum}
+        for name, minimum in thresholds.items()
+        if deterministic.get(name, 0) < minimum
+    }
+    if failures:
+        print(json.dumps({"threshold_failures": failures}, ensure_ascii=False, indent=2))
         raise SystemExit(1)
 
 

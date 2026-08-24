@@ -5,7 +5,12 @@ from evidencepilot.fetcher import WebFetcher, extract_main_text, is_safe_url
 
 
 def test_url_safety():
-    for url in ["http://127.0.0.1/x", "http://10.0.0.2", "http://169.254.169.254/latest", "file:///etc/passwd", "http://localhost"]:
+    for url in [
+        "http://127.0.0.1/x", "http://10.0.0.2", "http://169.254.169.254/latest",
+        "file:///etc/passwd", "http://localhost", "http://service.internal/path",
+        "https://user:password@example.com", "https://example.com:8443/path",
+        "https://example.com:invalid/path",
+    ]:
         assert not is_safe_url(url, resolve_dns=False)
     assert is_safe_url("https://example.com/path", resolve_dns=False)
 
@@ -75,3 +80,35 @@ async def test_fetcher_rejects_unsupported_content_type(monkeypatch):
     ))
     with pytest.raises(ValueError, match="unsupported content type"):
         await fetcher.fetch("https://public.example/image")
+
+
+@pytest.mark.asyncio
+async def test_fetcher_rejects_missing_content_type(monkeypatch):
+    monkeypatch.setattr("evidencepilot.fetcher.is_safe_url", lambda url: True)
+    fetcher = WebFetcher(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=b"untyped content")
+    ))
+    with pytest.raises(ValueError, match="unsupported content type: missing"):
+        await fetcher.fetch("https://public.example/untyped")
+
+
+@pytest.mark.asyncio
+async def test_fetcher_blocks_https_downgrade_redirect(monkeypatch):
+    monkeypatch.setattr("evidencepilot.fetcher.is_safe_url", lambda url: True)
+    fetcher = WebFetcher(transport=httpx.MockTransport(
+        lambda request: httpx.Response(302, headers={"Location": "http://public.example/page"})
+    ))
+    with pytest.raises(ValueError, match="HTTPS redirect downgrade"):
+        await fetcher.fetch("https://public.example/start")
+
+
+@pytest.mark.asyncio
+async def test_fetcher_rejects_invalid_content_length(monkeypatch):
+    monkeypatch.setattr("evidencepilot.fetcher.is_safe_url", lambda url: True)
+    fetcher = WebFetcher(transport=httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, content=b"text", headers={"Content-Type": "text/plain", "Content-Length": "bad"}
+        )
+    ))
+    with pytest.raises(ValueError, match="invalid Content-Length"):
+        await fetcher.fetch("https://public.example/page")

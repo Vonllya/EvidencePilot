@@ -3,6 +3,17 @@
 All notable changes to EvidencePilot are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- CodeQL, Dependabot, ownership rules, and structured contribution templates.
+- Fixed-corpus regression thresholds for claim parsing, citation adjacency and integrity.
+
+### Security
+
+- Stricter URL, redirect, port, proxy, media-type, and response-length validation.
+
 ## [0.1.0] - 2026-08-24
 
 ### Added

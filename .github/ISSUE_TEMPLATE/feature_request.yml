@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a focused improvement to EvidencePilot.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or maintainer problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe inputs, outputs, and failure behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: quality
+    attributes:
+      label: Quality and security impact
+      description: Note citation quality, API cost, privacy, SSRF, or compatibility considerations.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+

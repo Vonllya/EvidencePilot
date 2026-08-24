@@ -134,7 +134,8 @@ uv run python scripts/resume_task.py <task-id>
 
 ## 固定质量评测
 
-默认评测只使用 `evals/citation_cases.jsonl`，不访问模型或搜索 API：
+默认评测只使用 `evals/citation_cases.jsonl`，并按照
+`evals/thresholds.json` 执行回归门槛；它不访问模型或搜索 API：
 
 ```bash
 uv run python scripts/run_evals.py
