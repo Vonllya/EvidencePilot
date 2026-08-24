@@ -1,7 +1,10 @@
+from io import BytesIO
+
 import httpx
 import pytest
+from pypdf import PdfWriter
 
-from evidencepilot.fetcher import WebFetcher, extract_main_text, is_safe_url
+from evidencepilot.fetcher import WebFetcher, extract_main_text, extract_pdf_text, is_safe_url
 
 
 def test_url_safety():
@@ -20,6 +23,14 @@ def test_extract_main_text_removes_noise():
     text = extract_main_text(html)
     assert "Title" in text and "Useful evidence" in text
     assert "menu" not in text and "bad()" not in text and "legal" not in text
+
+
+def test_extract_pdf_text_is_bounded():
+    writer = PdfWriter()
+    writer.add_blank_page(width=300, height=300)
+    output = BytesIO()
+    writer.write(output)
+    assert extract_pdf_text(output.getvalue(), max_chars=20) == ""
 
 
 @pytest.mark.asyncio
@@ -80,6 +91,20 @@ async def test_fetcher_rejects_unsupported_content_type(monkeypatch):
     ))
     with pytest.raises(ValueError, match="unsupported content type"):
         await fetcher.fetch("https://public.example/image")
+
+
+@pytest.mark.asyncio
+async def test_fetcher_extracts_pdf_and_records_parser(monkeypatch):
+    monkeypatch.setattr("evidencepilot.fetcher.extract_pdf_text", lambda content, max_chars: "PDF evidence")
+    monkeypatch.setattr("evidencepilot.fetcher.is_safe_url", lambda url: True)
+    fetcher = WebFetcher(transport=httpx.MockTransport(
+        lambda request: httpx.Response(
+            200, content=b"minimal pdf bytes", headers={"Content-Type": "application/pdf"}
+        )
+    ))
+    page = await fetcher.fetch_page("https://public.example/evidence.pdf")
+    assert page.content == "PDF evidence"
+    assert page.content_type == "application/pdf" and page.parser == "pypdf"
 
 
 @pytest.mark.asyncio

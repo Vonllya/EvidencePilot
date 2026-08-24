@@ -24,8 +24,8 @@ def _fetch_failure_summary(message: str) -> tuple[str, str]:
         reason = "目标站点拒绝自动抓取（HTTP 403）；如有 Tavily snippet，将保留为 snippet fallback。"
     elif "405 Not Allowed" in detail:
         reason = "目标站点不允许此 HTTP 方法（HTTP 405）；如有 Tavily snippet，将保留为 snippet fallback。"
-    elif "unsupported content type: application/pdf" in detail:
-        reason = "当前抓取器暂不解析 PDF；如有 Tavily snippet，将保留为 snippet fallback。"
+    elif "parsed application/pdf body was empty" in detail:
+        reason = "PDF 已下载但未提取出文本（可能是扫描件或加密文件）；如有 Tavily snippet，将保留为 snippet fallback。"
     elif "unsafe or unresolvable URL" in detail:
         reason = "URL 未通过公网地址/DNS 安全校验；不会发起请求。"
     else:

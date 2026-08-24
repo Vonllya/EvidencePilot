@@ -11,6 +11,7 @@ dependencies = [
   "langgraph>=0.2,<2",
   "markdown-it-py>=3,<5",
   "openai>=1.40,<3",
+  "pypdf>=5,<7",
   "pydantic>=2.7,<3",
   "python-dotenv>=1,<2",
   "streamlit>=1.37,<2",

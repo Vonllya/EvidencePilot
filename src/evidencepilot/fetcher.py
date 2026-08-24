@@ -6,10 +6,12 @@ import ipaddress
 import socket
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import BytesIO
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from pypdf import PdfReader
 
 
 def is_safe_url(url: str, resolve_dns: bool = True) -> bool:
@@ -52,6 +54,23 @@ def extract_main_text(html: str, max_chars: int = 20_000) -> str:
         tag.decompose()
     root = soup.find("main") or soup.find("article") or soup.body or soup
     return "\n".join(line for line in (s.strip() for s in root.get_text("\n").splitlines()) if line)[:max_chars]
+
+
+def extract_pdf_text(content: bytes, max_chars: int = 20_000) -> str:
+    """Extract bounded text from a PDF without executing embedded content."""
+    reader = PdfReader(BytesIO(content), strict=False)
+    pages: list[str] = []
+    size = 0
+    for page in reader.pages:
+        text = (page.extract_text() or "").strip()
+        if not text:
+            continue
+        remaining = max_chars - size
+        if remaining <= 0:
+            break
+        pages.append(text[:remaining])
+        size += len(pages[-1])
+    return "\n\n".join(pages)[:max_chars]
 
 
 class WebFetcher:
@@ -113,7 +132,9 @@ class WebFetcher:
                         continue
                     response.raise_for_status()
                     content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().casefold()
-                    if content_type not in {"text/html", "text/plain", "application/xhtml+xml"}:
+                    if content_type not in {
+                        "text/html", "text/plain", "application/xhtml+xml", "application/pdf"
+                    }:
                         raise ValueError(f"unsupported content type: {content_type or 'missing'}")
                     declared_length = response.headers.get("content-length")
                     if declared_length is not None:
@@ -130,15 +151,24 @@ class WebFetcher:
                         if size > self.max_bytes:
                             raise ValueError("response exceeds size limit")
                         chunks.append(chunk)
-                    content = extract_main_text(
-                        b"".join(chunks).decode(response.encoding or "utf-8", errors="replace"),
-                        self.max_chars,
+                    raw_content = b"".join(chunks)
+                    parser = "pypdf" if content_type == "application/pdf" else "beautifulsoup"
+                    content = (
+                        extract_pdf_text(raw_content, self.max_chars)
+                        if content_type == "application/pdf"
+                        else extract_main_text(
+                            raw_content.decode(response.encoding or "utf-8", errors="replace"),
+                            self.max_chars,
+                        )
                     )
+                    if not content.strip():
+                        raise ValueError(f"parsed {content_type} body was empty")
                     return FetchedPage(
                         content=content, final_url=str(response.url),
                         http_status=response.status_code, content_type=content_type,
                         retrieved_at=datetime.now(UTC).isoformat(),
                         content_hash=hashlib.sha256(content.encode()).hexdigest(),
+                        parser=parser,
                     )
         raise ValueError("too many redirects")
 
