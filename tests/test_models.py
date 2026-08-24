@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from evidencepilot.config import Settings
 from evidencepilot.models import ResearchPlan, SubQuestion
 
 
@@ -14,3 +15,10 @@ def test_research_plan_validation():
 def test_research_plan_rejects_too_few_subquestions():
     with pytest.raises(ValidationError):
         ResearchPlan(objective="Understand a technical system", subquestions=[])
+
+
+def test_environment_provider_selection_is_required(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("SEARCH_PROVIDER", raising=False)
+    with pytest.raises(ValueError, match="LLM_PROVIDER"):
+        Settings.from_env()

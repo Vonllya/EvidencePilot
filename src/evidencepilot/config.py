@@ -51,8 +51,8 @@ class Settings:
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
-            llm_provider=os.getenv("LLM_PROVIDER", "openai").casefold(),
-            search_provider=os.getenv("SEARCH_PROVIDER", "tavily").casefold(),
+            llm_provider=os.getenv("LLM_PROVIDER", "").casefold(),
+            search_provider=os.getenv("SEARCH_PROVIDER", "").casefold(),
             openai_api_key=os.getenv("OPENAI_API_KEY") or None,
             openai_base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
             openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),

@@ -24,14 +24,15 @@ def load_cases(path: Path) -> list[dict]:
 
 async def evaluate(path: Path, live_model: bool) -> dict:
     cases = load_cases(path)
-    settings = Settings.from_env()
     if live_model:
+        settings = Settings.from_env()
         if settings.llm_provider == "mock" or not settings.openai_api_key:
             raise SystemExit("--live-model requires a real LLM_PROVIDER and OPENAI_API_KEY")
         llm = OpenAILLMProvider(
             settings.openai_api_key, settings.openai_base_url, settings.openai_model, settings
         )
     else:
+        settings = Settings(llm_provider="mock", search_provider="mock")
         llm = FakeLLMProvider()
     workflow = ResearchWorkflow(llm, MockSearchProvider(), WebFetcher(), settings=settings)
     claim_total = structure_correct = source_set_correct = quality_correct = 0

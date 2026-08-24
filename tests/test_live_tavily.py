@@ -16,7 +16,10 @@ async def test_real_tavily_online_availability():
     if os.getenv("RUN_LIVE_TAVILY") != "1":
         pytest.skip("set RUN_LIVE_TAVILY=1 to call the real Tavily API")
     load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
-    settings = Settings.from_env()
+    settings = Settings(
+        llm_provider="mock", search_provider="tavily",
+        tavily_api_key=os.getenv("TAVILY_API_KEY"),
+    )
     if not settings.tavily_api_key:
         pytest.skip("TAVILY_API_KEY is not configured")
     provider = TavilySearchProvider(settings.tavily_api_key)

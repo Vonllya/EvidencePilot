@@ -40,6 +40,8 @@ def audit_summary(audit: dict) -> dict:
 async def main() -> None:
     ARTIFACTS.mkdir(exist_ok=True)
     load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+    os.environ.setdefault("LLM_PROVIDER", "deepseek")
+    os.environ.setdefault("SEARCH_PROVIDER", "tavily")
     settings = replace(
         Settings.from_env(),
         llm_provider="deepseek",
