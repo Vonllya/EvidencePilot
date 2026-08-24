@@ -17,6 +17,9 @@ dependencies = [
   "tavily-python>=0.5,<1",
 ]
 
+[project.scripts]
+evidencepilot = "evidencepilot.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8,<9",

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import ipaddress
 import socket
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -40,14 +44,35 @@ class WebFetcher:
         self, timeout: float = 12, max_bytes: int = 2_000_000,
         max_chars: int = 20_000, max_redirects: int = 5,
         transport: httpx.AsyncBaseTransport | None = None,
+        max_concurrency: int = 8,
+        per_domain_concurrency: int = 2,
     ) -> None:
         self.timeout = timeout
         self.max_bytes = max_bytes
         self.max_chars = max_chars
         self.max_redirects = max_redirects
         self.transport = transport
+        self._global_limit = asyncio.Semaphore(max_concurrency)
+        self._per_domain_concurrency = per_domain_concurrency
+        self._domain_limits: dict[str, asyncio.Semaphore] = {}
+        self._cache: dict[str, FetchedPage] = {}
 
     async def fetch(self, url: str) -> str:
+        return (await self.fetch_page(url)).content
+
+    async def fetch_page(self, url: str) -> FetchedPage:
+        if url in self._cache:
+            return self._cache[url]
+        hostname = urlparse(url).hostname or ""
+        domain_limit = self._domain_limits.setdefault(
+            hostname, asyncio.Semaphore(self._per_domain_concurrency)
+        )
+        async with self._global_limit, domain_limit:
+            page = await self._fetch_page(url)
+        self._cache[url] = page
+        return page
+
+    async def _fetch_page(self, url: str) -> FetchedPage:
         headers = {"User-Agent": "EvidencePilot/0.1 (+https://github.com/example/evidencepilot)"}
         current_url = url
         async with httpx.AsyncClient(
@@ -69,6 +94,9 @@ class WebFetcher:
                         current_url = next_url
                         continue
                     response.raise_for_status()
+                    content_type = response.headers.get("content-type", "text/html").split(";", 1)[0]
+                    if content_type not in {"text/html", "text/plain", "application/xhtml+xml"}:
+                        raise ValueError(f"unsupported content type: {content_type}")
                     if int(response.headers.get("content-length", "0")) > self.max_bytes:
                         raise ValueError("response exceeds size limit")
                     chunks, size = [], 0
@@ -77,8 +105,25 @@ class WebFetcher:
                         if size > self.max_bytes:
                             raise ValueError("response exceeds size limit")
                         chunks.append(chunk)
-                    return extract_main_text(
+                    content = extract_main_text(
                         b"".join(chunks).decode(response.encoding or "utf-8", errors="replace"),
                         self.max_chars,
                     )
+                    return FetchedPage(
+                        content=content, final_url=str(response.url),
+                        http_status=response.status_code, content_type=content_type,
+                        retrieved_at=datetime.now(UTC).isoformat(),
+                        content_hash=hashlib.sha256(content.encode()).hexdigest(),
+                    )
         raise ValueError("too many redirects")
+
+
+@dataclass(frozen=True, slots=True)
+class FetchedPage:
+    content: str
+    final_url: str
+    http_status: int
+    content_type: str
+    retrieved_at: str
+    content_hash: str
+    parser: str = "beautifulsoup"

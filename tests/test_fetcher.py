@@ -44,3 +44,34 @@ async def test_fetcher_allows_safe_redirect_and_limits_hops(monkeypatch):
     monkeypatch.setattr("evidencepilot.fetcher.is_safe_url", lambda url: True)
     fetcher = WebFetcher(transport=httpx.MockTransport(handler), max_redirects=1)
     assert await fetcher.fetch("https://public.example/start") == "Public evidence."
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_records_metadata_and_uses_cache(monkeypatch):
+    calls = 0
+
+    def handler(request: httpx.Request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200, text="<main>Cached evidence.</main>",
+            headers={"Content-Type": "text/html; charset=utf-8"},
+        )
+
+    monkeypatch.setattr("evidencepilot.fetcher.is_safe_url", lambda url: True)
+    fetcher = WebFetcher(transport=httpx.MockTransport(handler))
+    first = await fetcher.fetch_page("https://public.example/page")
+    second = await fetcher.fetch_page("https://public.example/page")
+    assert first == second and calls == 1
+    assert first.http_status == 200 and first.content_type == "text/html"
+    assert len(first.content_hash) == 64 and first.parser == "beautifulsoup"
+
+
+@pytest.mark.asyncio
+async def test_fetcher_rejects_unsupported_content_type(monkeypatch):
+    monkeypatch.setattr("evidencepilot.fetcher.is_safe_url", lambda url: True)
+    fetcher = WebFetcher(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=b"binary", headers={"Content-Type": "image/png"})
+    ))
+    with pytest.raises(ValueError, match="unsupported content type"):
+        await fetcher.fetch("https://public.example/image")

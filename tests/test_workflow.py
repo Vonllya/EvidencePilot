@@ -58,7 +58,7 @@ async def test_failed_http_fetch_is_recorded_as_snippet_fallback():
             return []
 
     class FailingFetcher:
-        async def fetch(self, url: str):
+        async def fetch_page(self, url: str):
             raise RuntimeError("blocked")
 
     workflow = ResearchWorkflow(FakeLLMProvider(), RealSearchStub(), FailingFetcher())

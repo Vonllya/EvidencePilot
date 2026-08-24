@@ -41,6 +41,13 @@ class Source(StrictModel):
     content: str
     query: str = ""
     source_status: Literal["search_result", "fetched", "snippet_fallback"] = "fetched"
+    final_url: HttpUrl | None = None
+    http_status: int | None = None
+    content_type: str = ""
+    retrieved_at: str = ""
+    content_hash: str = ""
+    parser: str = ""
+    quality_score: float = Field(default=0.5, ge=0, le=1)
 
 
 class Evidence(StrictModel):

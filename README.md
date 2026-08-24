@@ -45,6 +45,16 @@ cp .env.example .env
 uv run streamlit run frontend/streamlit_app.py
 ```
 
+安装后也可以使用正式 CLI：
+
+```bash
+uv run evidencepilot providers
+uv run evidencepilot research "你的研究问题" --max-rounds 2
+uv run evidencepilot inspect <task-id>
+uv run evidencepilot resume <task-id>
+uv run evidencepilot eval
+```
+
 也可使用标准 pip：
 
 ```bash

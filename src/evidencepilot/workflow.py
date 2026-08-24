@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import time
 import uuid
@@ -28,6 +29,7 @@ from .models import (
     SearchResult,
     Source,
 )
+from .observability import log_event
 from .providers import FakeLLMProvider, LLMProvider
 from .search import MockSearchProvider, SearchProvider, deduplicate_queries, deduplicate_results
 from .storage import SQLiteStore
@@ -74,6 +76,8 @@ class ResearchWorkflow:
         async def run(state: ResearchState) -> dict[str, Any]:
             node_started = time.monotonic()
             calls_before = self.llm.calls
+            logger = logging.getLogger("evidencepilot.workflow")
+            log_event(logger, "node_started", task_id=state["task_id"], node=name)
             if self.store:
                 self.store.record_node(state["task_id"], name, "started")
             try:
@@ -89,6 +93,11 @@ class ResearchWorkflow:
                         self.store.record_error(state["task_id"], name, message)
                     self.store.save_state(merged, "completed" if name == "verify_citations" else "running")
                     self.store.record_node(state["task_id"], name, "completed")
+                log_event(
+                    logger, "node_completed", task_id=state["task_id"], node=name,
+                    elapsed_seconds=round(time.monotonic() - node_started, 3),
+                    model_calls=self.llm.calls - calls_before,
+                )
                 return update
             except Exception as exc:
                 message = f"{name}: {type(exc).__name__}: {exc}"
@@ -96,6 +105,10 @@ class ResearchWorkflow:
                     self.store.record_node(state["task_id"], name, "failed", message)
                     self.store.record_error(state["task_id"], name, message)
                     self.store.save_state(dict(state), "failed")
+                log_event(
+                    logger, "node_failed", task_id=state["task_id"], node=name,
+                    error_type=type(exc).__name__,
+                )
                 raise
         return run
 
@@ -148,18 +161,18 @@ class ResearchWorkflow:
         pending = [r for r in state["search_results"] if r["url"] not in previous]
         async def fetch_one(result):
             if isinstance(self.search, MockSearchProvider):
-                return result.get("snippet", ""), "snippet_fallback", None
+                return result.get("snippet", ""), "snippet_fallback", None, None
             last = None
             for _ in range(2):
                 try:
-                    content = await self.fetcher.fetch(result["url"])
-                    if not content.strip():
+                    page = await self.fetcher.fetch_page(result["url"])
+                    if not page.content.strip():
                         raise ValueError("parsed page body was empty")
-                    return content, "fetched", None
+                    return page.content, "fetched", None, page
                 except Exception as exc:
                     last = exc
             snippet = result.get("snippet", "").strip()
-            return snippet, "snippet_fallback" if snippet else "search_result", last
+            return snippet, "snippet_fallback" if snippet else "search_result", last, None
         fetched = await asyncio.gather(*(fetch_one(r) for r in pending), return_exceptions=True)
         errors = list(state.get("errors", []))
         sources = list(previous.values())
@@ -167,11 +180,21 @@ class ResearchWorkflow:
             if isinstance(outcome, Exception):
                 errors.append(f"fetch failed for {result['url']}: {outcome}")
                 continue
-            content, status, failure = outcome
+            content, status, failure, page = outcome
             if failure is not None:
                 errors.append(f"fetch failed for {result['url']}: {type(failure).__name__}: {failure}")
             if content.strip():
-                sources.append(Source(source_id=f"S{len(sources)+1}", title=result["title"], url=result["url"], content=content[:self.settings.max_source_chars], query=result.get("query", ""), source_status=status))
+                sources.append(Source(
+                    source_id=f"S{len(sources)+1}", title=result["title"], url=result["url"],
+                    content=content[:self.settings.max_source_chars], query=result.get("query", ""),
+                    source_status=status, final_url=page.final_url if page else result["url"],
+                    http_status=page.http_status if page else None,
+                    content_type=page.content_type if page else "tavily/snippet",
+                    retrieved_at=page.retrieved_at if page else "",
+                    content_hash=page.content_hash if page else "",
+                    parser=page.parser if page else "tavily",
+                    quality_score=0.9 if status == "fetched" else 0.4,
+                ))
         metrics = dict(state["metrics"])
         metrics["fetch_count"] = metrics.get("fetch_count", 0) + len(pending)
         statuses = [source.source_status for source in sources]
