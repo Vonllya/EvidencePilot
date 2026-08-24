@@ -1,0 +1,23 @@
+{
+  "report": "Checkpoint state can be restored after interruption [S1]. A search snippet claims guaranteed zero data loss [S2].\n\n## References\n\n- [S1] [Persistence docs](https://docs.example.com/persistence)\n- [S2] [Search result](https://search.example.com/result)",
+  "sources": [
+    {
+      "source_id": "S1",
+      "title": "Persistence docs",
+      "url": "https://docs.example.com/persistence",
+      "content": "Saved checkpoint state can be restored after an interrupted execution.",
+      "source_status": "fetched"
+    },
+    {
+      "source_id": "S2",
+      "title": "Search result",
+      "url": "https://search.example.com/result",
+      "content": "Checkpointing may improve recovery.",
+      "source_status": "snippet_fallback"
+    }
+  ],
+  "expected": [
+    {"claim_id": "CL1", "verdict": "supported", "evidence_quality": "fetched"},
+    {"claim_id": "CL2", "verdict": "unsupported", "evidence_quality": "snippet_fallback"}
+  ]
+}

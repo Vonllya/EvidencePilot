@@ -1,0 +1,27 @@
+[
+  {
+    "title": "LangGraph overview",
+    "url": "https://docs.example.org/langgraph-overview",
+    "content": "LangGraph is a framework for building stateful, multi-actor applications with language models. Graph nodes read and update shared state. Conditional edges can route execution based on evidence quality, and explicit recursion limits prevent unbounded execution."
+  },
+  {
+    "title": "Evidence-based research agents",
+    "url": "https://research.example.org/evidence-agents",
+    "content": "Reliable research agents retain source identifiers alongside extracted passages. Reports should cite those identifiers, while a separate verification step checks whether the cited passage supports each factual claim. Source diversity reduces dependence on a single publisher."
+  },
+  {
+    "title": "Secure server-side web fetching",
+    "url": "https://security.example.org/ssrf-fetching",
+    "content": "Server-side fetchers should allow only HTTP and HTTPS, resolve host names, reject private, loopback, link-local and metadata addresses, limit response size, set timeouts, and treat individual fetch failures as non-fatal."
+  },
+  {
+    "title": "Structured model outputs",
+    "url": "https://engineering.example.org/structured-outputs",
+    "content": "Schema-constrained model output makes agent transitions more reliable. Validation failures can be handled by one bounded repair attempt. Token counts and model-call counts should be recorded for operational visibility."
+  },
+  {
+    "title": "Research workflow evaluation",
+    "url": "https://evaluation.example.org/research-quality",
+    "content": "Evidence sufficiency can be assessed per research question using relevance, number of independent sources, and uncovered information. A bounded second search round may target only the identified gaps before report generation."
+  }
+]
