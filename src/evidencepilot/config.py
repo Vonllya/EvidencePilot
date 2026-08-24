@@ -22,6 +22,7 @@ class Settings:
     llm_thinking_mode: str = "disabled"
     llm_reasoning_effort: str = "low"
     llm_max_tokens_structured: int = 2048
+    llm_max_tokens_citation_audit: int = 4096
     llm_max_tokens_report: int = 4096
     llm_timeout_seconds: float = 120.0
     llm_max_retries: int = 2
@@ -33,7 +34,7 @@ class Settings:
             raise ValueError("SEARCH_PROVIDER must be 'tavily' or 'mock'")
         if self.llm_thinking_mode not in {"disabled", "enabled"}:
             raise ValueError("LLM_THINKING_MODE must be 'disabled' or 'enabled'")
-        if self.llm_max_tokens_structured < 1 or self.llm_max_tokens_report < 1:
+        if min(self.llm_max_tokens_structured, self.llm_max_tokens_citation_audit, self.llm_max_tokens_report) < 1:
             raise ValueError("LLM token budgets must be positive")
         if self.llm_max_retries < 0:
             raise ValueError("LLM_MAX_RETRIES cannot be negative")
@@ -43,6 +44,7 @@ class Settings:
         overrides = {
             "evaluate_evidence": min(1536, self.llm_max_tokens_structured),
             "refine_queries": min(1024, self.llm_max_tokens_structured),
+            "verify_citations": self.llm_max_tokens_citation_audit,
             "write_report": self.llm_max_tokens_report,
             "revise_unsupported_claims": self.llm_max_tokens_report,
         }
@@ -64,6 +66,7 @@ class Settings:
             llm_thinking_mode=os.getenv("LLM_THINKING_MODE", "disabled").casefold(),
             llm_reasoning_effort=os.getenv("LLM_REASONING_EFFORT", "low"),
             llm_max_tokens_structured=int(os.getenv("LLM_MAX_TOKENS_STRUCTURED", "2048")),
+            llm_max_tokens_citation_audit=int(os.getenv("LLM_MAX_TOKENS_CITATION_AUDIT", "4096")),
             llm_max_tokens_report=int(os.getenv("LLM_MAX_TOKENS_REPORT", "4096")),
             llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "120")),
             llm_max_retries=int(os.getenv("LLM_MAX_RETRIES", "2")),

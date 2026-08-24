@@ -75,7 +75,8 @@ streamlit run frontend/streamlit_app.py
 | `OPENAI_MODEL` | 否 | DeepSeek V4 Flash 使用 `deepseek-v4-flash` |
 | `LLM_THINKING_MODE` | 否 | `disabled` 或 `enabled`；默认 `disabled` |
 | `LLM_REASONING_EFFORT` | 否 | 仅思考模式开启时传递，默认 `low` |
-| `LLM_MAX_TOKENS_STRUCTURED` | 否 | 计划、提取、评估、核验等结构化节点的上限，默认 `2048` |
+| `LLM_MAX_TOKENS_STRUCTURED` | 否 | 计划、提取、评估等普通结构化节点的上限，默认 `2048` |
+| `LLM_MAX_TOKENS_CITATION_AUDIT` | 否 | 批量 Citation Audit 的独立输出上限，默认 `4096` |
 | `LLM_MAX_TOKENS_REPORT` | 否 | 报告节点的输出上限，默认 `4096` |
 | `LLM_TIMEOUT_SECONDS` | 否 | 单次模型请求超时，默认 `120` |
 | `LLM_MAX_RETRIES` | 否 | 429、500、503 与网络超时的最大重试数，默认 `2` |
@@ -100,7 +101,7 @@ LLM_MAX_RETRIES=2
 
 DeepSeek V4 默认开启思考；EvidencePilot 显式关闭它，因为计划、证据提取、充分性评估和引用核验依赖完整、可校验的 JSON，关闭思考可避免 reasoning 占满输出预算。开启时才发送 `reasoning_effort`，且不会发送或依赖 temperature、top_p。业务只使用 `message.content`；完整 `reasoning_content` 不进入日志、SQLite、Streamlit 或测试快照，仅记录 API 提供的 reasoning token 数。
 
-节点预算由配置层集中管理：计划和证据提取 2048、充分性评估 1536、补充查询 1024、引用核验 2048、报告 4096。`LLM_MAX_TOKENS_STRUCTURED` 会作为结构化节点总上限。
+节点预算由配置层集中管理：计划和证据提取 2048、充分性评估 1536、补充查询 1024、批量引用核验 4096、报告 4096。批量 Citation Audit 使用独立的 `LLM_MAX_TOKENS_CITATION_AUDIT`，避免多个 claim 共用普通结构化节点预算。
 
 ## Mock 与全真实模式
 

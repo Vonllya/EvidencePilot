@@ -115,7 +115,7 @@ def test_node_token_budgets():
     assert settings.token_budget("extract_evidence") == 2048
     assert settings.token_budget("evaluate_evidence") == 1536
     assert settings.token_budget("refine_queries") == 1024
-    assert settings.token_budget("verify_citations") == 2048
+    assert settings.token_budget("verify_citations") == 4096
     assert settings.token_budget("write_report") == 4096
     assert settings.token_budget("revise_unsupported_claims") == 4096
 
