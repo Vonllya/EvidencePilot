@@ -159,6 +159,8 @@ class ResearchState(TypedDict, total=False):
     missing_information: list[str]
     research_round: int
     max_rounds: int
+    source_preference: str
+    max_sources: int
     report: str
     citation_audit: dict[str, Any]
     citation_revision: dict[str, Any]

@@ -113,9 +113,16 @@ class ResearchWorkflow:
                 raise
         return run
 
-    def initial_state(self, question: str, max_rounds: int = 2) -> ResearchState:
+    def initial_state(
+        self,
+        question: str,
+        max_rounds: int = 2,
+        source_preference: str = "不限定来源类型",
+        max_sources: int | None = None,
+    ) -> ResearchState:
         now = time.time()
-        return ResearchState(task_id=str(uuid.uuid4()), question=question.strip(), research_plan={}, queries=[], completed_queries=[], search_results=[], sources=[], evidence=[], missing_information=[], research_round=0, max_rounds=max(1, min(max_rounds, 3)), report="", citation_audit={}, citation_revision={}, errors=[], metrics=Metrics(started_at=now).model_dump())
+        source_limit = self.settings.max_sources if max_sources is None else max(1, min(max_sources, 50))
+        return ResearchState(task_id=str(uuid.uuid4()), question=question.strip(), research_plan={}, queries=[], completed_queries=[], search_results=[], sources=[], evidence=[], missing_information=[], research_round=0, max_rounds=max(1, min(max_rounds, 3)), source_preference=source_preference.strip() or "不限定来源类型", max_sources=source_limit, report="", citation_audit={}, citation_revision={}, errors=[], metrics=Metrics(started_at=now).model_dump())
 
     def _update_metrics(
         self, state: dict[str, Any], node: str, elapsed: float, node_calls: int
@@ -138,7 +145,7 @@ class ResearchWorkflow:
         )
 
     async def plan_research(self, state: ResearchState) -> dict[str, Any]:
-        plan = await self.llm.structured(f"Create a research plan with 3-5 subquestions. QUESTION: {state['question']}\nReturn only JSON.", ResearchPlan, node="plan_research")
+        plan = await self.llm.structured(f"Create a research plan with 3-5 subquestions. Prefer source type: {state.get('source_preference', '不限定来源类型')}. QUESTION: {state['question']}\nReturn only JSON.", ResearchPlan, node="plan_research")
         queries = [q for sub in plan.subquestions for q in sub.search_queries]
         return {"research_plan": plan.model_dump(mode="json"), "queries": deduplicate_queries(queries)[: self.settings.max_queries_per_round]}
 
@@ -152,7 +159,7 @@ class ResearchWorkflow:
                 errors.append(f"search failed for {query}: {batch}")
             else:
                 results.extend(batch)
-        combined = deduplicate_results([*map(SearchResult.model_validate, state.get("search_results", [])), *results])[: self.settings.max_sources]
+        combined = deduplicate_results([*map(SearchResult.model_validate, state.get("search_results", [])), *results])[: state.get("max_sources", self.settings.max_sources)]
         metrics = dict(state["metrics"])
         metrics["search_count"] = metrics.get("search_count", 0) + len(queries)
         return {"search_results": [r.model_dump(mode="json") for r in combined], "completed_queries": [*state.get("completed_queries", []), *queries], "research_round": state.get("research_round", 0) + 1, "errors": errors, "metrics": metrics}
@@ -230,7 +237,7 @@ class ResearchWorkflow:
         metrics["fetch_success_count"] = statuses.count("fetched")
         metrics["snippet_fallback_count"] = statuses.count("snippet_fallback")
         metrics["fetch_failure_count"] = sum(1 for error in errors if error.startswith("fetch failed for "))
-        return {"sources": [s.model_dump(mode="json") for s in sources[:self.settings.max_sources]], "errors": errors, "metrics": metrics}
+        return {"sources": [s.model_dump(mode="json") for s in sources[:state.get("max_sources", self.settings.max_sources)]], "errors": errors, "metrics": metrics}
 
     async def extract_evidence(self, state: ResearchState) -> dict[str, Any]:
         sources = [Source.model_validate(s) for s in state.get("sources", [])]

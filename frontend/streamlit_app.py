@@ -63,13 +63,28 @@ with st.sidebar:
             st.session_state.result = old
 
 question = st.text_area("研究问题", placeholder="例如：如何设计一个可靠、可验证的深度研究 Agent？", height=100)
-max_rounds = st.select_slider("最大研究轮数", options=[1, 2, 3], value=2)
+max_rounds = st.radio("最大研究轮数", options=[1, 2, 3], index=1, horizontal=True)
+source_preference = st.selectbox(
+    "抓取倾向",
+    options=["不限定来源类型", "官方文档", "GitHub", "论文平台", "博客", "媒体"],
+    help="该偏好会写入研究计划，指导搜索查询优先选择相应来源。最终来源仍由实际搜索结果和抓取状态决定。",
+)
+max_sources = st.slider(
+    "最多抓取来源数",
+    min_value=3,
+    max_value=min(50, max(3, runtime.workflow.settings.max_sources)),
+    value=min(10, max(3, runtime.workflow.settings.max_sources)),
+    step=1,
+    help="控制本次研究最多保留和抓取的去重来源数量。",
+)
 start = st.button("开始研究", type="primary", disabled=not runtime.runnable or not question.strip())
 
 if start:
     status = st.status("研究进行中…", expanded=True)
     current = st.empty()
-    state = runtime.workflow.initial_state(question, max_rounds)
+    state = runtime.workflow.initial_state(
+        question, max_rounds, source_preference=source_preference, max_sources=max_sources
+    )
 
     async def stream_run():
         latest = state

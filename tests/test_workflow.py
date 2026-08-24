@@ -24,6 +24,19 @@ class EmptySearch(SearchProvider):
         return []
 
 
+def test_initial_state_preserves_frontend_research_controls():
+    workflow = ResearchWorkflow(FakeLLMProvider(), MockSearchProvider(), WebFetcher())
+    state = workflow.initial_state(
+        "A sufficiently long question?",
+        max_rounds=3,
+        source_preference="论文平台",
+        max_sources=6,
+    )
+    assert state["max_rounds"] == 3
+    assert state["source_preference"] == "论文平台"
+    assert state["max_sources"] == 6
+
+
 def test_explicit_mock_selects_mock_providers(tmp_path):
     runtime = create_runtime(Settings(
         llm_provider="mock", search_provider="mock", database_path=str(tmp_path / "test.db")
