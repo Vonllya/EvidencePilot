@@ -132,6 +132,9 @@ class Metrics(StrictModel):
     elapsed_seconds: float = 0
     search_count: int = 0
     fetch_count: int = 0
+    fetch_attempt_count: int = 0
+    fetch_retry_count: int = 0
+    timeout_retry_count: int = 0
     model_calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0

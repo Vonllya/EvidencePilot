@@ -130,6 +130,9 @@ if result:
                 "reasoning_tokens": metrics.get("reasoning_tokens", 0),
                 "cached_tokens": metrics.get("cached_tokens", 0),
                 "retry_count": metrics.get("retry_count", 0),
+                "fetch_attempt_count": metrics.get("fetch_attempt_count", 0),
+                "fetch_retry_count": metrics.get("fetch_retry_count", 0),
+                "timeout_retry_count": metrics.get("timeout_retry_count", 0),
                 "node_metrics": metrics.get("node_metrics", {}),
                 "calls": metrics.get("call_metrics", []),
             })

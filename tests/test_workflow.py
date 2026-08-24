@@ -1,3 +1,4 @@
+import httpx
 import pytest
 
 from evidencepilot.app import create_runtime
@@ -16,6 +17,11 @@ from evidencepilot.providers import FakeLLMProvider, LLMProvider
 from evidencepilot.search import MockSearchProvider, SearchProvider
 from evidencepilot.storage import SQLiteStore
 from evidencepilot.workflow import ResearchWorkflow
+
+
+class EmptySearch(SearchProvider):
+    async def search(self, query: str, max_results: int = 4):
+        return []
 
 
 def test_explicit_mock_selects_mock_providers(tmp_path):
@@ -71,6 +77,61 @@ async def test_failed_http_fetch_is_recorded_as_snippet_fallback():
     assert update["metrics"]["fetch_success_count"] == 0
     assert update["metrics"]["snippet_fallback_count"] == 1
     assert update["metrics"]["fetch_failure_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_timeout_is_retried_after_first_fetch_pass():
+    from evidencepilot.fetcher import FetchedPage
+
+    class RetryingFetcher:
+        def __init__(self):
+            self.calls = []
+
+        async def fetch_page(self, url: str):
+            self.calls.append(url)
+            if len(self.calls) == 1:
+                raise httpx.ReadTimeout("temporary timeout")
+            return FetchedPage(
+                content="Recovered evidence", final_url=url, http_status=200,
+                content_type="text/plain", retrieved_at="now", content_hash="hash",
+                parser="text",
+            )
+
+    fetcher = RetryingFetcher()
+    workflow = ResearchWorkflow(FakeLLMProvider(), EmptySearch(), fetcher)
+    state = workflow.initial_state("A sufficiently long question?")
+    state["search_results"] = [SearchResult(
+        title="Docs", url="https://docs.example.com", snippet="fallback", query="q"
+    ).model_dump(mode="json")]
+    update = await workflow.fetch_sources(state)
+    assert len(fetcher.calls) == 2
+    assert update["sources"][0]["source_status"] == "fetched"
+    assert update["metrics"]["fetch_retry_count"] == 1
+    assert update["metrics"]["timeout_retry_count"] == 1
+    assert update["metrics"]["fetch_failure_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_http_403_is_not_retried():
+    class ForbiddenFetcher:
+        def __init__(self):
+            self.calls = 0
+
+        async def fetch_page(self, url: str):
+            self.calls += 1
+            request = httpx.Request("GET", url)
+            raise httpx.HTTPStatusError("forbidden", request=request, response=httpx.Response(403, request=request))
+
+    fetcher = ForbiddenFetcher()
+    workflow = ResearchWorkflow(FakeLLMProvider(), EmptySearch(), fetcher)
+    state = workflow.initial_state("A sufficiently long question?")
+    state["search_results"] = [SearchResult(
+        title="Docs", url="https://docs.example.com", snippet="fallback", query="q"
+    ).model_dump(mode="json")]
+    update = await workflow.fetch_sources(state)
+    assert fetcher.calls == 1
+    assert update["sources"][0]["source_status"] == "snippet_fallback"
+    assert update["metrics"]["fetch_retry_count"] == 0
 
 
 @pytest.mark.asyncio

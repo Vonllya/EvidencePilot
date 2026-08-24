@@ -8,6 +8,7 @@ import time
 import uuid
 from typing import Any
 
+import httpx
 from langgraph.graph import END, START, StateGraph
 from markdown_it import MarkdownIt
 
@@ -159,21 +160,41 @@ class ResearchWorkflow:
     async def fetch_sources(self, state: ResearchState) -> dict[str, Any]:
         previous = {s["url"]: Source.model_validate(s) for s in state.get("sources", [])}
         pending = [r for r in state["search_results"] if r["url"] not in previous]
+
         async def fetch_one(result):
             if isinstance(self.search, MockSearchProvider):
                 return result.get("snippet", ""), "snippet_fallback", None, None
-            last = None
-            for _ in range(2):
-                try:
-                    page = await self.fetcher.fetch_page(result["url"])
-                    if not page.content.strip():
-                        raise ValueError("parsed page body was empty")
-                    return page.content, "fetched", None, page
-                except Exception as exc:
-                    last = exc
-            snippet = result.get("snippet", "").strip()
-            return snippet, "snippet_fallback" if snippet else "search_result", last, None
+            try:
+                page = await self.fetcher.fetch_page(result["url"])
+                if not page.content.strip():
+                    raise ValueError("parsed page body was empty")
+                return page.content, "fetched", None, page
+            except Exception as exc:
+                return "", "", exc, None
+
+        def retryable_fetch_error(error: Exception) -> bool:
+            if isinstance(error, (asyncio.TimeoutError, httpx.TimeoutException, httpx.NetworkError)):
+                return True
+            if isinstance(error, httpx.HTTPStatusError):
+                return error.response.status_code in {408, 425, 429, 500, 502, 503, 504}
+            return False
+
         fetched = await asyncio.gather(*(fetch_one(r) for r in pending), return_exceptions=True)
+        retry_candidates = [
+            (index, result, outcome)
+            for index, (result, outcome) in enumerate(zip(pending, fetched, strict=True))
+            if not isinstance(outcome, Exception)
+            and outcome[2] is not None
+            and retryable_fetch_error(outcome[2])
+        ]
+        if retry_candidates:
+            await asyncio.sleep(0.2)
+            retries = await asyncio.gather(
+                *(fetch_one(result) for _, result, _ in retry_candidates), return_exceptions=True
+            )
+            for (index, _, _), retry_outcome in zip(retry_candidates, retries, strict=True):
+                fetched[index] = retry_outcome
+
         errors = list(state.get("errors", []))
         sources = list(previous.values())
         for result, outcome in zip(pending, fetched, strict=True):
@@ -183,6 +204,8 @@ class ResearchWorkflow:
             content, status, failure, page = outcome
             if failure is not None:
                 errors.append(f"fetch failed for {result['url']}: {type(failure).__name__}: {failure}")
+                snippet = result.get("snippet", "").strip()
+                content, status, page = snippet, "snippet_fallback" if snippet else "search_result", None
             if content.strip():
                 sources.append(Source(
                     source_id=f"S{len(sources)+1}", title=result["title"], url=result["url"],
@@ -197,6 +220,12 @@ class ResearchWorkflow:
                 ))
         metrics = dict(state["metrics"])
         metrics["fetch_count"] = metrics.get("fetch_count", 0) + len(pending)
+        metrics["fetch_attempt_count"] = metrics.get("fetch_attempt_count", 0) + len(pending) + len(retry_candidates)
+        metrics["fetch_retry_count"] = metrics.get("fetch_retry_count", 0) + len(retry_candidates)
+        metrics["timeout_retry_count"] = metrics.get("timeout_retry_count", 0) + sum(
+            isinstance(outcome[2], (asyncio.TimeoutError, httpx.TimeoutException))
+            for _, _, outcome in retry_candidates
+        )
         statuses = [source.source_status for source in sources]
         metrics["fetch_success_count"] = statuses.count("fetched")
         metrics["snippet_fallback_count"] = statuses.count("snippet_fallback")
