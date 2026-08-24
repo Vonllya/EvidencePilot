@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections import Counter
 from pathlib import Path
 
 import streamlit as st
@@ -12,6 +13,25 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from evidencepilot.app import create_runtime  # noqa: E402
 from evidencepilot.config import Settings  # noqa: E402
+
+
+def _fetch_failure_summary(message: str) -> tuple[str, str]:
+    prefix, _, detail = message.partition(": ")
+    if not prefix.startswith("fetch failed for "):
+        return "工作流错误", message
+    url = prefix.removeprefix("fetch failed for ")
+    if "403 Forbidden" in detail:
+        reason = "目标站点拒绝自动抓取（HTTP 403）；如有 Tavily snippet，将保留为 snippet fallback。"
+    elif "405 Not Allowed" in detail:
+        reason = "目标站点不允许此 HTTP 方法（HTTP 405）；如有 Tavily snippet，将保留为 snippet fallback。"
+    elif "unsupported content type: application/pdf" in detail:
+        reason = "当前抓取器暂不解析 PDF；如有 Tavily snippet，将保留为 snippet fallback。"
+    elif "unsafe or unresolvable URL" in detail:
+        reason = "URL 未通过公网地址/DNS 安全校验；不会发起请求。"
+    else:
+        reason = "真实 HTTP 抓取失败；如有 Tavily snippet，将保留为 snippet fallback。"
+    return url, reason
+
 
 load_dotenv()
 st.set_page_config(page_title="EvidencePilot", page_icon="🔎", layout="wide")
@@ -78,10 +98,19 @@ if result:
         st.subheader("已执行查询")
         st.write(result.get("completed_queries", []))
         st.subheader("来源")
+        source_counts = Counter(source.get("source_status", "search_result") for source in result.get("sources", []))
+        status_cols = st.columns(3)
+        status_cols[0].metric("真实抓取成功", source_counts.get("fetched", 0))
+        status_cols[1].metric("Snippet fallback", source_counts.get("snippet_fallback", 0))
+        status_cols[2].metric("仅搜索结果", source_counts.get("search_result", 0))
         for source in result.get("sources", []):
-            st.markdown(f"**[{source['source_id']}] [{source['title']}]({source['url']})**")
+            status = source.get("source_status", "search_result")
+            st.markdown(f"**[{source['source_id']}] [{source['title']}]({source['url']})** · `{status}`")
         if result.get("errors"):
-            st.warning("\n".join(result["errors"]))
+            with st.expander(f"抓取问题（{len(result['errors'])}）", expanded=False):
+                for error in result["errors"]:
+                    target, reason = _fetch_failure_summary(error)
+                    st.markdown(f"- `{target}`：{reason}")
     with tab_audit:
         audit = result.get("citation_audit", {})
         st.metric("引用覆盖率", f"{audit.get('coverage', 0):.0%}")
