@@ -80,6 +80,17 @@ class SQLiteStore:
             row = db.execute("SELECT status FROM tasks WHERE task_id=?", (task_id,)).fetchone()
         return str(row[0]) if row else None
 
+    def delete_task(self, task_id: str) -> bool:
+        """Delete one task and all of its dependent records."""
+        with self.connect() as db:
+            exists = db.execute("SELECT 1 FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+            if exists is None:
+                return False
+            for table in ("sources", "node_runs", "errors"):
+                db.execute(f"DELETE FROM {table} WHERE task_id=?", (task_id,))
+            db.execute("DELETE FROM tasks WHERE task_id=?", (task_id,))
+        return True
+
     def latest_node_run(self, task_id: str) -> dict[str, Any] | None:
         with self.connect() as db:
             row = db.execute(

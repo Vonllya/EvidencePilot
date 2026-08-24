@@ -225,3 +225,18 @@ async def test_failed_workflow_resumes_from_failed_node(tmp_path):
     assert store.task_status(task["task_id"]) == "completed"
     completed = await workflow.resume(task["task_id"])
     assert completed["task_id"] == task["task_id"]
+
+
+def test_delete_task_removes_task_and_dependent_records(tmp_path):
+    store = SQLiteStore(str(tmp_path / "delete.db"))
+    state = ResearchWorkflow(FakeLLMProvider(), MockSearchProvider(), WebFetcher()).initial_state("Delete me")
+    state["sources"] = [{
+        "source_id": "S1", "title": "Docs", "url": "https://docs.example.com",
+        "content": "evidence", "source_status": "fetched",
+    }]
+    store.save_state(state)
+    store.record_node(state["task_id"], "plan_research", "completed")
+    store.record_error(state["task_id"], "fetch_sources", "temporary error")
+    assert store.delete_task(state["task_id"]) is True
+    assert store.load_state(state["task_id"]) is None
+    assert store.delete_task(state["task_id"]) is False

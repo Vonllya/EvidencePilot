@@ -58,9 +58,16 @@ with st.sidebar:
     labels = {f"{x['question'][:35]} · {x['created_at']}": x["task_id"] for x in history}
     selected = st.selectbox("选择历史报告", [""] + list(labels))
     if selected:
-        old = runtime.workflow.store.load_state(labels[selected])
+        selected_task_id = labels[selected]
+        old = runtime.workflow.store.load_state(selected_task_id)
         if old:
             st.session_state.result = old
+        st.caption("删除操作会移除该任务及其来源、节点记录和错误记录。")
+        if st.button("删除所选报告", type="secondary"):
+            runtime.workflow.store.delete_task(selected_task_id)
+            if st.session_state.get("result", {}).get("task_id") == selected_task_id:
+                st.session_state.pop("result", None)
+            st.rerun()
 
 question = st.text_area("研究问题", placeholder="例如：如何设计一个可靠、可验证的深度研究 Agent？", height=100)
 max_rounds = st.radio("最大研究轮数", options=[1, 2, 3], index=1, horizontal=True)
@@ -71,9 +78,9 @@ source_preference = st.selectbox(
 )
 max_sources = st.slider(
     "最多抓取来源数",
-    min_value=3,
-    max_value=min(50, max(3, runtime.workflow.settings.max_sources)),
-    value=min(10, max(3, runtime.workflow.settings.max_sources)),
+    min_value=10,
+    max_value=30,
+    value=10,
     step=1,
     help="控制本次研究最多保留和抓取的去重来源数量。",
 )
