@@ -33,6 +33,7 @@ async def _run(args) -> None:
             raise SystemExit(f"task not found: {args.task_id}")
         print(json.dumps({"task_id": args.task_id, "status": runtime.workflow.store.task_status(args.task_id), "question": state.get("question"), "report_ready": bool(state.get("report"))}, ensure_ascii=False, indent=2))
     elif args.command == "eval":
+        load_dotenv(Path.cwd() / ".env", override=False)
         result = await evaluate_citations(args.corpus, args.live_model)
         print(json.dumps(result, ensure_ascii=False, indent=2))
     elif args.command == "providers":
