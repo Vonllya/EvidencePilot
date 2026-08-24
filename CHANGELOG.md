@@ -10,6 +10,10 @@ All notable changes to EvidencePilot are documented here. The project follows
 - CodeQL, Dependabot, ownership rules, and structured contribution templates.
 - Fixed-corpus regression thresholds for claim parsing, citation adjacency and integrity.
 
+### Fixed
+
+- Updated the test toolchain to pytest 9.1.1 and pytest-asyncio 1.4.0, including a refreshed lockfile.
+
 ### Security
 
 - Stricter URL, redirect, port, proxy, media-type, and response-length validation.
