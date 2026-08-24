@@ -22,7 +22,7 @@ evidencepilot = "evidencepilot.cli:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8,<9",
+    "pytest>=8,<10",
     "pytest-asyncio>=0.23,<1",
     "ruff>=0.12,<1",
 ]
