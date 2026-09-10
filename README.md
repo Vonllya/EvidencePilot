@@ -57,6 +57,7 @@ Provider 必须显式选择；缺少真实密钥时不会静默降级到 Mock。
 ```env
 LLM_PROVIDER=deepseek
 SEARCH_PROVIDER=tavily
+SEARCH_TIMEOUT_SECONDS=20
 OPENAI_API_KEY=
 OPENAI_BASE_URL=https://api.deepseek.com
 OPENAI_MODEL=deepseek-v4-flash
@@ -98,15 +99,13 @@ SEARCH_PROVIDER=mock
 
 ## 评测与测试
 
-固定语料包含 32 个 case，默认完全离线。确定性解析指标按照
-`evals/deterministic_thresholds.json` 执行 100% 回归门槛：
+固定语料评测默认完全离线，并按照 `evals/deterministic_thresholds.json` 对确定性解析指标执行 100% 回归门槛：
 
 ```bash
 uv run python scripts/run_evals.py
 ```
 
-显式启用真实模型语义核验时，当前先以一个最小 supported case 验证调用链路；语义准确率另按
-`evals/semantic_thresholds.json` 管理。当前只输出统计结果，待获得稳定的重复运行基线后再启用硬门槛：
+显式启用真实模型语义核验；语义统计独立输出，稳定基线建立后再启用硬门槛：
 
 ```bash
 uv run python scripts/run_evals.py --live-model
@@ -157,12 +156,7 @@ DNS 校验与实际连接之间仍存在系统级竞态。生产部署应在网�
 ## 项目结构
 
 ```text
-src/evidencepilot/workflow/    图编排、节点与路由
-src/evidencepilot/citations/   Claim 解析、审计、Patch 与覆盖率
-src/evidencepilot/retrieval/   搜索、抓取与缓存
-src/evidencepilot/providers/   Provider 接口、OpenAI 与离线实现
-src/evidencepilot/storage/     存储接口与 SQLite 实现
-src/evidencepilot/             配置、模型、可观测性和 CLI
+src/evidencepilot/   核心工作流、引用、检索、Provider、存储和 CLI
 frontend/             Streamlit 演示界面
 scripts/              评测、验收和恢复脚本
 evals/                固定质量评测语料与阈值
