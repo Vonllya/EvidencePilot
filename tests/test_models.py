@@ -22,3 +22,8 @@ def test_environment_provider_selection_is_required(monkeypatch):
     monkeypatch.delenv("SEARCH_PROVIDER", raising=False)
     with pytest.raises(ValueError, match="LLM_PROVIDER"):
         Settings.from_env()
+
+
+def test_search_timeout_must_be_positive():
+    with pytest.raises(ValueError, match="SEARCH_TIMEOUT_SECONDS"):
+        Settings(search_timeout_seconds=0)

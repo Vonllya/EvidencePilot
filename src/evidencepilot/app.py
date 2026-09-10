@@ -42,7 +42,9 @@ def create_runtime(settings: Settings | None = None) -> Runtime:
                 "SEARCH_PROVIDER=tavily requires TAVILY_API_KEY; "
                 "use SEARCH_PROVIDER=mock explicitly for offline mode"
             )
-        search, search_mode = TavilySearchProvider(settings.tavily_api_key), "Tavily"
+        search, search_mode = TavilySearchProvider(
+            settings.tavily_api_key, timeout=settings.search_timeout_seconds
+        ), "Tavily"
     workflow = ResearchWorkflow(
         llm, search,
         WebFetcher(settings.http_timeout_seconds, settings.max_page_bytes, settings.max_source_chars),

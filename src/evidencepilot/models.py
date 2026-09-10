@@ -78,7 +78,7 @@ class EvidenceEvaluation(StrictModel):
 class AtomicClaim(StrictModel):
     claim_id: str
     text: str
-    source_ids: list[str] = Field(min_length=1)
+    source_ids: list[str] = Field(default_factory=list)
     node_type: str = "paragraph"
     start_offset: int = Field(default=0, ge=0)
     end_offset: int = Field(default=0, ge=0)
@@ -88,7 +88,7 @@ class AtomicClaim(StrictModel):
 
 class CitationCheck(StrictModel):
     claim_id: str
-    source_ids: list[str] = Field(min_length=1)
+    source_ids: list[str] = Field(default_factory=list)
     claim: str
     verdict: Literal["supported", "partially_supported", "unsupported"]
     evidence_quality: Literal["fetched", "snippet_fallback", "mixed", "unavailable"]

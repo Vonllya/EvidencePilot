@@ -131,7 +131,7 @@ async def test_retryable_errors_have_finite_retries(monkeypatch, replies):
     async def no_sleep(_):
         return None
 
-    monkeypatch.setattr("evidencepilot.providers.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("evidencepilot.providers.openai.asyncio.sleep", no_sleep)
     with pytest.raises(LLMError, match="finite retries"):
         await llm.text("hello")
     assert len(stub.kwargs) == 3 and llm.retries == 2
@@ -149,7 +149,7 @@ async def test_retryable_http_statuses_have_finite_retries(monkeypatch, status):
     async def no_sleep(_):
         return None
 
-    monkeypatch.setattr("evidencepilot.providers.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("evidencepilot.providers.openai.asyncio.sleep", no_sleep)
     with pytest.raises(LLMError, match="finite retries"):
         await llm.text("hello")
     assert len(stub.kwargs) == 3 and llm.retries == 2

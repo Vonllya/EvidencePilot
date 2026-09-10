@@ -75,6 +75,7 @@ LLM_MAX_RETRIES=2
 |---|---:|---|
 | `LLM_PROVIDER` | 无 | `openai`、`deepseek` 或 `mock` |
 | `SEARCH_PROVIDER` | 无 | `tavily` 或 `mock` |
+| `SEARCH_TIMEOUT_SECONDS` | `20` | 单次 Tavily 搜索请求超时 |
 | `OPENAI_BASE_URL` | OpenAI endpoint | OpenAI-compatible API 地址 |
 | `OPENAI_MODEL` | `gpt-4o-mini` | 模型名称 |
 | `LLM_MAX_TOKENS_STRUCTURED` | `2048` | 普通结构化节点预算 |
@@ -97,13 +98,15 @@ SEARCH_PROVIDER=mock
 
 ## 评测与测试
 
-固定语料评测默认完全离线，并按照 `evals/thresholds.json` 执行回归门槛：
+固定语料包含 32 个 case，默认完全离线。确定性解析指标按照
+`evals/deterministic_thresholds.json` 执行 100% 回归门槛：
 
 ```bash
 uv run python scripts/run_evals.py
 ```
 
-显式启用真实模型语义核验：
+显式启用真实模型语义核验时，当前先以一个最小 supported case 验证调用链路；语义准确率另按
+`evals/semantic_thresholds.json` 管理。当前只输出统计结果，待获得稳定的重复运行基线后再启用硬门槛：
 
 ```bash
 uv run python scripts/run_evals.py --live-model
@@ -144,7 +147,7 @@ uv run python scripts/resume_task.py <task-id>
 - 仅允许 HTTP/HTTPS 和标准端口
 - 阻止 URL 凭据、localhost、私网、回环、链路本地和非全局 IP
 - 每个重定向重新执行校验，并拒绝 HTTPS 降级
-- 禁用环境代理继承
+- 网页 Fetcher 禁用环境代理继承（搜索与 LLM Provider 按各自客户端配置）
 - 限制响应类型、解码大小、超时和并发
 - PDF 只提取文本，不执行嵌入动作或文件
 - 日志和持久化层不保存 API Key、完整 reasoning 或完整提示词
@@ -154,7 +157,12 @@ DNS 校验与实际连接之间仍存在系统级竞态。生产部署应在网�
 ## 项目结构
 
 ```text
-src/evidencepilot/   核心 Provider、工作流、抓取器、存储和 CLI
+src/evidencepilot/workflow/    图编排、节点与路由
+src/evidencepilot/citations/   Claim 解析、审计、Patch 与覆盖率
+src/evidencepilot/retrieval/   搜索、抓取与缓存
+src/evidencepilot/providers/   Provider 接口、OpenAI 与离线实现
+src/evidencepilot/storage/     存储接口与 SQLite 实现
+src/evidencepilot/             配置、模型、可观测性和 CLI
 frontend/             Streamlit 演示界面
 scripts/              评测、验收和恢复脚本
 evals/                固定质量评测语料与阈值

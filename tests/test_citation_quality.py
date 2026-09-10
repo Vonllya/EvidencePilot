@@ -56,6 +56,24 @@ def test_atomic_claim_uses_joint_source_set():
     assert claims[1].source_ids == ["S3"]
 
 
+@pytest.mark.asyncio
+async def test_coverage_counts_uncited_sentences_in_denominator():
+    workflow = ResearchWorkflow(FixedCorpusLLM([{
+        "claim_id": "CL2", "verdict": "supported",
+    }]), MockSearchProvider(), WebFetcher())
+    claims = workflow._atomic_claims("Uncited fact. Cited fact [S1].")
+    assert [(claim.text, claim.source_ids) for claim in claims] == [
+        ("Uncited fact.", []), ("Cited fact [S1].", ["S1"]),
+    ]
+    audit = await workflow._batch_citation_audit(claims, {
+        "S1": {"source_id": "S1", "source_status": "fetched", "content": "Cited fact."}
+    })
+    assert audit.total_citations == 2
+    assert audit.valid_citations == 1
+    assert audit.coverage == 0.5
+    assert audit.checks[0].reason == "The claim has no adjacent citation."
+
+
 def test_markdown_ast_respects_structure_and_source_offsets():
     report = """# Report
 
@@ -100,12 +118,22 @@ def test_ast_offsets_patch_only_target_duplicate_claim():
 
 
 def test_markdown_ast_combines_table_fact_and_citation_cells():
-    report = """| Claim | Evidence |
-|---|---|
-| State is restored | [S1] |
+    report = """| Claim |
+|---|
+| State is restored [S1]. |
 """
     claims = ResearchWorkflow._atomic_claims(report)
     assert len(claims) == 1
-    assert claims[0].node_type == "table_row"
-    assert claims[0].text == "State is restored | [S1]"
+    assert claims[0].node_type == "table_cell"
+    assert claims[0].text == "State is restored [S1]."
     assert report[claims[0].start_offset:claims[0].end_offset] == claims[0].text
+
+
+def test_inline_markdown_does_not_confuse_links_code_or_sentence_offsets():
+    report = "An **important** fact [S1]. `not [S9].` A [S8](https://example.com) fact."
+    claims = ResearchWorkflow._atomic_claims(report)
+    assert [(claim.text, claim.source_ids) for claim in claims] == [
+        ("An **important** fact [S1].", ["S1"]),
+        ("`not [S9].` A [S8](https://example.com) fact.", []),
+    ]
+    assert all(report[c.start_offset:c.end_offset] == c.text for c in claims)

@@ -19,6 +19,7 @@ class Settings:
     max_page_bytes: int = 2_000_000
     max_source_chars: int = 20_000
     http_timeout_seconds: float = 12.0
+    search_timeout_seconds: float = 20.0
     llm_thinking_mode: str = "disabled"
     llm_reasoning_effort: str = "low"
     llm_max_tokens_structured: int = 2048
@@ -38,6 +39,8 @@ class Settings:
             raise ValueError("LLM token budgets must be positive")
         if self.llm_max_retries < 0:
             raise ValueError("LLM_MAX_RETRIES cannot be negative")
+        if self.search_timeout_seconds <= 0:
+            raise ValueError("SEARCH_TIMEOUT_SECONDS must be positive")
 
     def token_budget(self, node: str) -> int:
         """Central node budget policy; values are caps, not usage targets."""
@@ -63,6 +66,7 @@ class Settings:
             max_queries_per_round=int(os.getenv("MAX_QUERIES_PER_ROUND", "8")),
             results_per_query=int(os.getenv("RESULTS_PER_QUERY", "4")),
             max_sources=int(os.getenv("MAX_SOURCES", "20")),
+            search_timeout_seconds=float(os.getenv("SEARCH_TIMEOUT_SECONDS", "20")),
             llm_thinking_mode=os.getenv("LLM_THINKING_MODE", "disabled").casefold(),
             llm_reasoning_effort=os.getenv("LLM_REASONING_EFFORT", "low"),
             llm_max_tokens_structured=int(os.getenv("LLM_MAX_TOKENS_STRUCTURED", "2048")),

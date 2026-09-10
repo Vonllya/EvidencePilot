@@ -5,14 +5,20 @@ All notable changes to EvidencePilot are documented here. The project follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-10
+
 ### Added
 
 - CodeQL, Dependabot, ownership rules, and structured contribution templates.
 - Fixed-corpus regression thresholds for claim parsing, citation adjacency and integrity.
+- Expanded deterministic citation evaluation to 32 cases and separated semantic thresholds.
+- Configurable Tavily search timeout through `SEARCH_TIMEOUT_SECONDS`.
+- Modular workflow, citation, retrieval, provider, and storage packages.
 
 ### Fixed
 
 - Updated the test toolchain to pytest 9.1.1 and pytest-asyncio 1.4.0, including a refreshed lockfile.
+- Citation coverage now includes uncited claims, and post-patch audits no longer match by text.
 
 ### Security
 
@@ -36,3 +42,4 @@ All notable changes to EvidencePilot are documented here. The project follows
 - HTTP fetching rejects non-public targets, revalidates redirects, and limits response size.
 
 [0.1.0]: https://github.com/Vonllya/EvidencePilot/releases/tag/v0.1.0
+[0.2.0]: https://github.com/Vonllya/EvidencePilot/releases/tag/v0.2.0

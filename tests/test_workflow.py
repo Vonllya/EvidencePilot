@@ -57,7 +57,9 @@ async def test_mock_end_to_end_and_max_rounds():
     assert result["research_round"] == 1
     assert result["report"].startswith("# Research Report")
     assert result["sources"] and result["evidence"]
-    assert CitationAudit.model_validate(result["citation_audit"]).coverage == 1
+    audit = CitationAudit.model_validate(result["citation_audit"])
+    assert 0 < audit.coverage < 1
+    assert any(not check.source_ids for check in audit.checks)
 
 
 @pytest.mark.asyncio
@@ -168,10 +170,11 @@ async def test_batch_audit_revises_unsupported_claims_and_rechecks():
                     CitationBatchItem(claim_id="CL1", verdict="unsupported", reason="broad"),
                     CitationBatchItem(claim_id="CL2", verdict="supported", reason="already sound"),
                 ])
-            assert "CL2" not in prompt
-            return CitationBatch(checks=[CitationBatchItem(
-                claim_id="CL1", verdict="supported", reason="batch decision"
-            )])
+            assert "CL2" in prompt
+            return CitationBatch(checks=[
+                CitationBatchItem(claim_id="CL1", verdict="supported", reason="rechecked"),
+                CitationBatchItem(claim_id="CL2", verdict="supported", reason="rechecked"),
+            ])
 
         async def text(self, prompt, *, node="text"):
             self.calls += 1
@@ -190,7 +193,7 @@ async def test_batch_audit_revises_unsupported_claims_and_rechecks():
     assert update["citation_revision"]["attempted"] is True
     assert update["citation_revision"]["problem_claims"] == 1
     assert update["citation_revision"]["patches_applied"] == 1
-    assert update["citation_revision"]["rechecked_claims"] == 1
+    assert update["citation_revision"]["rechecked_claims"] == 2
     assert update["citation_audit"]["checks"][0]["verdict"] == "supported"
     assert "narrower supported claim" in update["report"]
     assert "A supported fact [S1]." in update["report"]
