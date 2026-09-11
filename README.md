@@ -59,6 +59,8 @@ uv run evidencepilot inspect <task-id>
 uv run evidencepilot resume <task-id>
 ```
 
+来源名额按最大研究轮数分配，为后续补充检索预留容量；证据充分或来源名额用尽时提前生成报告。
+
 `<task-id>` 为研究命令返回的任务 ID。任务默认保存至 `data/evidencepilot.db`，可通过 `EVIDENCEPILOT_DB` 修改路径。
 
 ## 开发与评测

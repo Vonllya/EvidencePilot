@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from difflib import SequenceMatcher
+from urllib.parse import urlsplit, urlunsplit
 
 from tavily import AsyncTavilyClient
 
@@ -50,10 +50,10 @@ def deduplicate_results(results: Iterable[SearchResult]) -> list[SearchResult]:
     kept: list[SearchResult] = []
     urls: set[str] = set()
     for result in results:
-        normalized = str(result.url).rstrip("/").casefold()
+        parts = urlsplit(str(result.url))
+        normalized = urlunsplit((parts.scheme.lower(), parts.netloc.lower(),
+                                 parts.path.rstrip("/"), parts.query, ""))
         if normalized in urls:
-            continue
-        if any(SequenceMatcher(None, result.title.casefold(), old.title.casefold()).ratio() > 0.93 for old in kept):
             continue
         urls.add(normalized)
         kept.append(result)

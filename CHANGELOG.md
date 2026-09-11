@@ -5,6 +5,13 @@ All notable changes to EvidencePilot are documented here. The project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Reserve source capacity across research rounds so gap-driven searches can add evidence.
+- Keep model usage metrics task-local, including failed attempts and resumed tasks.
+- Include offline mock documents in the installed package.
+- Preserve independent same-title sources and case-sensitive URL paths and queries.
+
 ## [0.2.0] - 2026-09-10
 
 ### Added

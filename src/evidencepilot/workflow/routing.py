@@ -7,7 +7,9 @@ from typing import Any
 def evaluation_route(state: Mapping[str, Any]) -> str:
     sufficient = state.get("evaluation", {}).get("sufficient", False)
     exhausted = state.get("research_round", 0) >= state.get("max_rounds", 2)
-    return "report" if sufficient or exhausted else "refine"
+    source_limit = state.get("max_sources")
+    capacity_exhausted = source_limit is not None and len(state.get("search_results", [])) >= source_limit
+    return "report" if sufficient or exhausted or capacity_exhausted else "refine"
 
 
 def resume_node(state: Mapping[str, Any], latest: Mapping[str, Any] | None) -> str:

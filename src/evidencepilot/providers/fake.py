@@ -2,7 +2,7 @@
 
 import json
 import re
-from pathlib import Path
+from importlib.resources import files
 
 from ..models import (
     CitationCheck,
@@ -68,7 +68,7 @@ class FakeLLMProvider(LLMProvider):
 
 
 def load_mock_documents() -> list[dict[str, str]]:
-    path = Path(__file__).resolve().parents[3] / "examples" / "mock_sources.json"
+    path = files("evidencepilot").joinpath("resources/mock_sources.json")
     return json.loads(path.read_text(encoding="utf-8"))
 
 __all__ = ["FakeLLMProvider", "load_mock_documents"]

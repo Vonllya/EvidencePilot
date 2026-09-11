@@ -243,3 +243,88 @@ def test_delete_task_removes_task_and_dependent_records(tmp_path):
     assert store.delete_task(state["task_id"]) is True
     assert store.load_state(state["task_id"]) is None
     assert store.delete_task(state["task_id"]) is False
+
+
+@pytest.mark.asyncio
+async def test_later_rounds_add_sources_within_total_budget():
+    class RoundSearch(MockSearchProvider):
+        async def search(self, query, max_results=4):
+            return [SearchResult(title=f"{query} {i}", url=f"https://example.com/{query}/{i}",
+                                 snippet="Useful evidence.") for i in range(10)]
+
+    workflow = ResearchWorkflow(FakeLLMProvider(), RoundSearch(), WebFetcher())
+    state = workflow.initial_state("Research with evidence gaps", max_rounds=3, max_sources=10)
+    for round_number, expected_count in enumerate([4, 7, 10], start=1):
+        previous = list(state["sources"])
+        state["queries"] = [f"round{round_number}"]
+        state.update(await workflow.search_web(state))
+        state.update(await workflow.fetch_sources(state))
+        assert len(state["sources"]) == expected_count
+        assert state["sources"][:len(previous)] == previous
+        assert any(f"/round{round_number}/" in s["url"] for s in state["sources"])
+    assert len({s["source_id"] for s in state["sources"]}) == 10
+
+
+@pytest.mark.asyncio
+async def test_reused_runtime_keeps_task_metrics_separate():
+    workflow = ResearchWorkflow(FakeLLMProvider(), MockSearchProvider(), WebFetcher())
+    first = await workflow.run("How can research remain verifiable?")
+    second = await workflow.run("How can research remain verifiable?")
+    for key in ("model_calls", "prompt_tokens", "total_tokens", "call_metrics"):
+        assert first["metrics"][key] == second["metrics"][key]
+    assert second["metrics"]["model_calls"] == sum(
+        node["model_calls"] for node in second["metrics"]["node_metrics"].values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_resume_with_new_provider_preserves_failed_attempt_usage(tmp_path):
+    class FailEvaluation(FakeLLMProvider):
+        async def structured(self, prompt, schema, *, node="structured"):
+            result = await super().structured(prompt, schema, node=node)
+            if node == "evaluate_evidence":
+                raise RuntimeError("evaluation failed")
+            return result
+
+    store = SQLiteStore(str(tmp_path / "metrics.db"))
+    workflow = ResearchWorkflow(FailEvaluation(), MockSearchProvider(), WebFetcher(), store)
+    with pytest.raises(RuntimeError, match="evaluation failed"):
+        await workflow.run("How can research remain verifiable?", max_rounds=1)
+    task_id = store.list_tasks()[0]["task_id"]
+    before = store.load_state(task_id)["metrics"]
+    assert before["model_calls"] == 2
+    resumed_workflow = ResearchWorkflow(FakeLLMProvider(), MockSearchProvider(), WebFetcher(), store)
+    result = await resumed_workflow.resume(task_id)
+    after = result["metrics"]
+    assert after["model_calls"] == 3
+    assert after["total_tokens"] > before["total_tokens"]
+    assert after["call_metrics"][:len(before["call_metrics"])] == before["call_metrics"]
+    assert after["node_metrics"]["evaluate_evidence"]["calls"] == 2
+
+
+def test_full_source_budget_stops_unproductive_supplemental_searches():
+    from evidencepilot.workflow.routing import evaluation_route
+
+    assert evaluation_route({
+        "evaluation": {"sufficient": False}, "research_round": 1,
+        "max_rounds": 3, "max_sources": 1, "search_results": [{"url": "https://example.com"}],
+    }) == "report"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_tasks_on_shared_runtime_keep_usage_separate():
+    import asyncio
+
+    class YieldingLLM(FakeLLMProvider):
+        async def structured(self, prompt, schema, *, node="structured"):
+            result = await super().structured(prompt, schema, node=node)
+            await asyncio.sleep(0)
+            return result
+
+    workflow = ResearchWorkflow(YieldingLLM(), MockSearchProvider(), WebFetcher())
+    first, second = await asyncio.gather(
+        workflow.run("How can research remain verifiable?"),
+        workflow.run("How can research remain verifiable?"),
+    )
+    assert first["metrics"]["model_calls"] == second["metrics"]["model_calls"] == 2
+    assert first["metrics"]["total_tokens"] == second["metrics"]["total_tokens"]

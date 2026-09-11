@@ -37,3 +37,15 @@ async def test_tavily_uses_basic_search_result_limit_and_configured_timeout(monk
     results = await provider.search("checkpoint", max_results=2)
     assert observed["timeout"] == 7.5
     assert len(results) == 1 and str(results[0].url).startswith("https://docs.example.com")
+
+
+def test_deduplication_preserves_independent_titles_and_case_sensitive_urls():
+    results = [
+        SearchResult(title="Annual report", url="https://one.example/Report"),
+        SearchResult(title="Annual report", url="https://two.example/Report"),
+        SearchResult(title="Annual report", url="https://one.example/report"),
+        SearchResult(title="Annual report", url="https://one.example/Report?key=A"),
+        SearchResult(title="Annual report", url="https://one.example/Report?key=a"),
+        SearchResult(title="Duplicate", url="https://ONE.example/Report#section"),
+    ]
+    assert deduplicate_results(results) == results[:5]

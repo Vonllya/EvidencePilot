@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import uuid
+from copy import deepcopy
 from typing import Any
 
 import httpx
@@ -45,6 +46,7 @@ class WorkflowNodes(CitationAuditMixin):
     def __init__(self, llm: LLMProvider, search: SearchProvider, fetcher: WebFetcher, store: StateStore | None = None, settings: Settings | None = None) -> None:
         self.llm, self.search, self.fetcher, self.store = llm, search, fetcher, store
         self.settings = settings or Settings()
+        self._node_lock = asyncio.Lock()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -76,6 +78,7 @@ class WorkflowNodes(CitationAuditMixin):
     def _wrapped(self, name: str, function):
         async def run(state: ResearchState) -> dict[str, Any]:
             node_started = time.monotonic()
+            before = self._provider_metrics()
             calls_before = self.llm.calls
             logger = logging.getLogger("evidencepilot.workflow")
             log_event(logger, "node_started", task_id=state["task_id"], node=name)
@@ -83,10 +86,10 @@ class WorkflowNodes(CitationAuditMixin):
                 self.store.record_node(state["task_id"], name, "started")
             try:
                 update = await function(state)
-                merged = dict(state)
+                merged = deepcopy(state)
                 merged.update(update)
                 self._update_metrics(
-                    merged, name, time.monotonic() - node_started, self.llm.calls - calls_before
+                    merged, name, time.monotonic() - node_started, before
                 )
                 update["metrics"] = merged["metrics"]
                 if self.store:
@@ -105,13 +108,19 @@ class WorkflowNodes(CitationAuditMixin):
                 if self.store:
                     self.store.record_node(state["task_id"], name, "failed", message)
                     self.store.record_error(state["task_id"], name, message)
-                    self.store.save_state(dict(state), "failed")
+                    failed = deepcopy(state)
+                    self._update_metrics(failed, name, time.monotonic() - node_started, before)
+                    self.store.save_state(failed, "failed")
                 log_event(
                     logger, "node_failed", task_id=state["task_id"], node=name,
                     error_type=type(exc).__name__,
                 )
                 raise
-        return run
+        async def serialized(state: ResearchState) -> dict[str, Any]:
+            # A runtime shares one provider; isolate each node's usage deltas.
+            async with self._node_lock:
+                return await run(state)
+        return serialized
 
     def initial_state(
         self,
@@ -124,10 +133,20 @@ class WorkflowNodes(CitationAuditMixin):
         source_limit = self.settings.max_sources if max_sources is None else max(1, min(max_sources, 50))
         return ResearchState(task_id=str(uuid.uuid4()), question=question.strip(), research_plan={}, queries=[], completed_queries=[], search_results=[], sources=[], evidence=[], missing_information=[], research_round=0, max_rounds=max(1, min(max_rounds, 3)), source_preference=source_preference.strip() or "不限定来源类型", max_sources=source_limit, report="", citation_audit={}, citation_revision={}, errors=[], metrics=Metrics(started_at=now).model_dump())
 
+    def _provider_metrics(self) -> dict[str, int]:
+        return {
+            "model_calls": self.llm.calls, "prompt_tokens": self.llm.input_tokens,
+            "completion_tokens": self.llm.output_tokens, "total_tokens": self.llm.total_tokens,
+            "reasoning_tokens": self.llm.reasoning_tokens, "cached_tokens": self.llm.cached_tokens,
+            "retry_count": self.llm.retries, "call_count": len(self.llm.call_metrics),
+        }
+
     def _update_metrics(
-        self, state: dict[str, Any], node: str, elapsed: float, node_calls: int
+        self, state: dict[str, Any], node: str, elapsed: float, before: dict[str, int]
     ) -> None:
-        metrics = state.get("metrics", {})
+        metrics = deepcopy(state.get("metrics", {}))
+        current = self._provider_metrics()
+        node_calls = current["model_calls"] - before["model_calls"]
         node_metrics = dict(metrics.get("node_metrics", {}))
         previous = node_metrics.get(node, {})
         node_metrics[node] = {
@@ -135,14 +154,16 @@ class WorkflowNodes(CitationAuditMixin):
             "model_calls": previous.get("model_calls", 0) + node_calls,
             "elapsed_seconds": round(previous.get("elapsed_seconds", 0) + elapsed, 3),
         }
+        for key, value in current.items():
+            if key != "call_count":
+                metrics[key] = metrics.get(key, 0) + value - before[key]
         metrics.update(
             elapsed_seconds=round(time.time() - metrics.get("started_at", time.time()), 3),
-            model_calls=self.llm.calls, prompt_tokens=self.llm.input_tokens,
-            completion_tokens=self.llm.output_tokens, total_tokens=self.llm.total_tokens,
-            reasoning_tokens=self.llm.reasoning_tokens, cached_tokens=self.llm.cached_tokens,
-            retry_count=self.llm.retries, model=self.llm.model, node_metrics=node_metrics,
-            call_metrics=list(self.llm.call_metrics),
+            model=self.llm.model, node_metrics=node_metrics,
+            call_metrics=[*metrics.get("call_metrics", []),
+                          *self.llm.call_metrics[before["call_count"]:]],
         )
+        state["metrics"] = metrics
 
     async def plan_research(self, state: ResearchState) -> dict[str, Any]:
         plan = await self.llm.structured(f"Create a research plan with 3-5 subquestions. Prefer source type: {state.get('source_preference', '不限定来源类型')}. QUESTION: {state['question']}\nReturn only JSON.", ResearchPlan, node="plan_research")
@@ -159,7 +180,12 @@ class WorkflowNodes(CitationAuditMixin):
                 errors.append(f"search failed for {query}: {batch}")
             else:
                 results.extend(batch)
-        combined = deduplicate_results([*map(SearchResult.model_validate, state.get("search_results", [])), *results])[: state.get("max_sources", self.settings.max_sources)]
+        # Reserve source capacity for gap-driven searches in later rounds.
+        limit = state.get("max_sources", self.settings.max_sources)
+        round_number = state.get("research_round", 0) + 1
+        rounds = state.get("max_rounds", 2)
+        budget = min(limit, (limit * round_number + rounds - 1) // rounds)
+        combined = deduplicate_results([*map(SearchResult.model_validate, state.get("search_results", [])), *results])[:budget]
         metrics = dict(state["metrics"])
         metrics["search_count"] = metrics.get("search_count", 0) + len(queries)
         return {"search_results": [r.model_dump(mode="json") for r in combined], "completed_queries": [*state.get("completed_queries", []), *queries], "research_round": state.get("research_round", 0) + 1, "errors": errors, "metrics": metrics}
